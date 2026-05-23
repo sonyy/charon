@@ -28,6 +28,7 @@ import { executeLiveSell } from '../execution/router.js';
 import { handleCallback, editMenuMessage } from './callbacks.js';
 import { consumeNumericFilterInput } from './input.js';
 import { runLearning, sendLessons } from '../learning/commands.js';
+import { runAdvisor } from '../learning/advisor.js';
 import { fetchWalletPnl } from '../enrichment/wallets.js';
 
 export async function handleMessage(msg) {
@@ -76,6 +77,11 @@ export async function handleMessage(msg) {
     return bot.sendMessage(chatId, `Updated ${id}.${key} = ${value}\n\n${strategyMenuText()}`, { parse_mode: 'HTML' });
   }
   if (text.startsWith('/pnl')) return sendPnl(chatId);
+  if (text.startsWith('/advisor')) {
+    bot.sendMessage(chatId, '🧠 Running advisor analysis...').catch(() => {});
+    runAdvisor(chatId).catch(err => console.log(`[advisor] manual run failed: ${err.message}`));
+    return;
+  }
   if (text.startsWith('/learn')) {
     const windowArg = text.split(/\s+/)[1] || '12h';
     return runLearning(chatId, windowArg);
@@ -134,6 +140,7 @@ export async function handleMessage(msg) {
       'default_sl_percent',
       'default_trailing_enabled',
       'default_trailing_percent',
+      'filtered_coin_alerts',
     ]);
     if (!valid.has(key) || value == null) {
       return bot.sendMessage(chatId, `Usage: /setfilter &lt;name&gt; &lt;value&gt;\n\n${filtersText()}`, { parse_mode: 'HTML' });
@@ -245,6 +252,7 @@ export function setupTelegram() {
     { command: 'candidate', description: 'Show candidate by mint' },
     { command: 'filters', description: 'Show filters' },
     { command: 'pnl', description: 'Show saved-wallet PnL' },
+    { command: 'advisor', description: 'Run trade & filter advisor suggestions' },
     { command: 'learn', description: 'Run manual learning report' },
     { command: 'lessons', description: 'Show active screening lessons' },
     { command: 'setfilter', description: 'Set a filter value' },

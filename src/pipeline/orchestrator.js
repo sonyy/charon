@@ -34,7 +34,24 @@ export async function processCandidateFromSignals(signals) {
   const signature = signals.signature || null;
   const candidateId = upsertCandidate(candidate, signature);
   if (!candidate.filters.passed) {
-    console.log(`[candidate] filtered ${candidate.token.mint.slice(0, 8)}... ${candidate.filters.failures.join('; ')}`);
+    const strat = activeStrategy();
+    const mintShort = candidate.token.mint.slice(0, 8);
+    console.log(`[candidate] filtered ${mintShort}... ${candidate.filters.failures.join('; ')}`);
+    if (boolSetting('filtered_coin_alerts', true)) {
+      try {
+        await sendTelegram([
+          '⛔ <b>Filtered: ' + escapeHtml(candidate.token.symbol || candidate.token.name || short(candidate.token.mint)) + '</b>',
+          '',
+          `Signal: <b>${escapeHtml(candidate.signals.label)}</b> · Strategy: <b>${escapeHtml(strat.id)}</b>`,
+          `Token: <a href="${candidate.token.gmgnUrl}">${short(candidate.token.mint)}</a>`,
+          ...(candidate.filters.failures.map(f => `❌ ${escapeHtml(f)}`)),
+          '',
+          `Mcap: ${candidate.metrics.marketCapUsd ? '$' + Number(candidate.metrics.marketCapUsd).toLocaleString() : '?'} · Liq: ${candidate.metrics.liquidityUsd ? '$' + Number(candidate.metrics.liquidityUsd).toLocaleString() : '?'} · Holders: ${candidate.metrics.holderCount || '?'}`,
+        ].join('\n'));
+      } catch (err) {
+        console.log(`[candidate] telegram send failed: ${err.message}`);
+      }
+    }
     return;
   }
 

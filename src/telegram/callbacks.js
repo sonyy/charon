@@ -25,6 +25,7 @@ import { createDryRunPosition, canOpenMorePositions, openPositionCount, tradingM
 import { executeLiveBuy, executeConfirmedIntent, rejectIntent } from '../execution/router.js';
 import { sendCandidate, sendPosition, closePosition, updatePositionRule, toggleTrailing } from './commands.js';
 import { requestNumericFilterInput, requestStrategyNumericInput } from './input.js';
+import { runAdvisor } from '../learning/advisor.js';
 
 export async function handleCallback(query) {
   const data = query.data || '';
@@ -44,6 +45,10 @@ export async function handleCallback(query) {
     setSetting('agent_enabled', boolSetting('agent_enabled', true) ? 'false' : 'true');
     return editMenuMessage(query, agentText(), agentKeyboard());
   }
+  if (data === 'toggle:filtered_coin_alerts') {
+    setSetting('filtered_coin_alerts', boolSetting('filtered_coin_alerts', true) ? 'false' : 'true');
+    return editMenuMessage(query, filtersText(), filtersKeyboard());
+  }
   if (data === 'toggle:trending_enabled' || data === 'toggle:trending_allow_degen') {
     const key = data.replace('toggle:', '');
     setSetting(key, boolSetting(key, key === 'trending_enabled') ? 'false' : 'true');
@@ -52,6 +57,11 @@ export async function handleCallback(query) {
   if (data === 'menu:filters') return editMenuMessage(query, filtersText(), filtersKeyboard());
   if (data === 'menu:strategy') return editMenuMessage(query, strategyMenuText(), strategyKeyboard());
   if (data === 'menu:wallets') return editMenuMessage(query, walletsText(), navKeyboard());
+  if (data === 'menu:advisor') {
+    bot.sendMessage(chatId, '🧠 Running advisor analysis...').catch(() => {});
+    runAdvisor(chatId).catch(err => console.log(`[advisor] manual run failed: ${err.message}`));
+    return null;
+  }
   if (data === 'menu:positions') return editMenuMessage(query, positionsText(), navKeyboard());
   if (data === 'menu:pnl') {
     const { sendPnl } = await import('./send.js');
@@ -238,6 +248,7 @@ async function updateSettingFromButton(query, key, value) {
     'trending_min_swaps',
     'trending_max_rug_ratio',
     'trending_max_bundler_rate',
+    'filtered_coin_alerts',
     'trading_mode',
     'llm_min_confidence',
     'llm_candidate_pick_count',

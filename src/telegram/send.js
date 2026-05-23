@@ -8,11 +8,12 @@ import { candidateSummary, compactCandidateLine, batchRevealSummary, formatPosit
 import { candidateButtons, batchRevealButtons, positionButtons, intentButtons } from './menus.js';
 import { batchById } from '../db/decisions.js';
 
-export async function sendTelegram(text, extra = {}) {
-  return bot.sendMessage(TELEGRAM_CHAT_ID, text, {
+export async function sendTelegram(text, extra = {}, chatId = null) {
+  const targetChatId = chatId || TELEGRAM_CHAT_ID;
+  return bot.sendMessage(targetChatId, text, {
     parse_mode: 'HTML',
     disable_web_page_preview: true,
-    ...(TELEGRAM_TOPIC_ID ? { message_thread_id: Number(TELEGRAM_TOPIC_ID) } : {}),
+    ...(targetChatId === TELEGRAM_CHAT_ID && TELEGRAM_TOPIC_ID ? { message_thread_id: Number(TELEGRAM_TOPIC_ID) } : {}),
     ...extra,
   });
 }

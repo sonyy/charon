@@ -18,6 +18,9 @@ export function menuKeyboard() {
         [
           { text: 'Wallets', callback_data: 'menu:wallets' },
           { text: 'Positions', callback_data: 'menu:positions' },
+          { text: 'Suggestions', callback_data: 'menu:advisor' },
+        ],
+        [
           { text: 'PnL', callback_data: 'menu:pnl' },
         ],
       ],
@@ -47,6 +50,8 @@ export function filtersText() {
     `Trending interval: ${escapeHtml(setting('trending_interval', '5m'))} · Limit: ${numSetting('trending_limit', 100)}`,
     `Min trend volume: ${fmtUsd(strat.trending_min_volume_usd)} · Min swaps: ${strat.trending_min_swaps}`,
     `Max trend rug: ${fmtPct(strat.trending_max_rug_ratio * 100)} · Max bundler: ${fmtPct(strat.trending_max_bundler_rate * 100)}`,
+    '',
+    `Filter alerts: <b>${boolSetting('filtered_coin_alerts', true) ? 'on' : 'off'}</b>`,
   ].filter(Boolean).join('\n');
 }
 
@@ -97,6 +102,7 @@ export function filtersKeyboard() {
     reply_markup: {
       inline_keyboard: [
         [{ text: 'Configure in Strategy', callback_data: 'menu:strategy' }],
+        [{ text: 'Filter Alerts On/Off', callback_data: 'toggle:filtered_coin_alerts' }],
         [
           { text: 'Trend On/Off', callback_data: 'toggle:trending_enabled' },
           { text: 'Use Jupiter', callback_data: 'set:trending_source:jupiter' },
