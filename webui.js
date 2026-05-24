@@ -14,6 +14,10 @@ if (!fs.existsSync(dbPath)) {
 }
 const db = new Database(dbPath, { readonly: true });
 db.pragma('journal_mode = WAL');
+db.pragma('synchronous = NORMAL');
+db.pragma('busy_timeout = 5000');
+db.pragma('cache_size = -8000');
+db.pragma('temp_store = MEMORY');
 
 const app = express();
 
