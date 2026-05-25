@@ -39,6 +39,9 @@ export function filtersText() {
     `Min grad volume: ${fmtUsd(strat.min_graduated_volume_usd)}`,
     `Min holders: ${strat.min_holders || 'off'}`,
     `Max holder: ${strat.max_top20_holder_percent < 100 ? fmtPct(strat.max_top20_holder_percent) : 'off'}`,
+    `Min Top10 holder: ${strat.min_top10_holder_percent > 0 ? fmtPct(strat.min_top10_holder_percent) : 'off'}`,
+    `Max Top10 holder: ${strat.max_top10_holder_percent < 100 ? fmtPct(strat.max_top10_holder_percent) : 'off'}`,
+    `Min liquidity: ${strat.min_liquidity_usd > 0 ? fmtUsd(strat.min_liquidity_usd) : 'off'}`,
     `Min saved holders: ${strat.min_saved_wallet_holders || 'off'}`,
     strat.max_ath_distance_pct < 0 ? `Max ATH distance: ${strat.max_ath_distance_pct}%` : null,
     '',
@@ -62,6 +65,9 @@ export const numericFilterLabels = {
   min_gmgn_total_fee_sol: 'minimum total trading fees SOL (GMGN)',
   min_graduated_volume_usd: 'minimum graduated volume USD',
   max_top20_holder_percent: 'maximum holder percent',
+  min_top10_holder_percent: 'minimum top10 holder percent',
+  max_top10_holder_percent: 'maximum top10 holder percent',
+  min_liquidity_usd: 'minimum liquidity USD',
   min_saved_wallet_holders: 'minimum saved-wallet holders',
   trending_limit: 'trending result limit',
   trending_min_volume_usd: 'minimum trending volume USD',
@@ -78,6 +84,9 @@ export const strategyNumericLabels = {
   min_graduated_volume_usd: 'minimum graduated volume USD',
   min_holders: 'minimum holders',
   max_top20_holder_percent: 'maximum top holder percent',
+  min_top10_holder_percent: 'minimum top10 holder percent',
+  max_top10_holder_percent: 'maximum top10 holder percent',
+  min_liquidity_usd: 'minimum liquidity USD',
   min_saved_wallet_holders: 'minimum saved-wallet holders',
   max_ath_distance_pct: 'maximum ATH distance percent (-40 = 40% below ATH, 0 = off)',
   min_source_count: 'minimum source count',
@@ -264,6 +273,13 @@ export function strategyKeyboard() {
     [
       { text: `Grad Vol ${fmtUsd(strat.min_graduated_volume_usd)}`, callback_data: 'stratinput:min_graduated_volume_usd' },
       { text: `Max Holder ${strat.max_top20_holder_percent < 100 ? fmtPct(strat.max_top20_holder_percent) : 'off'}`, callback_data: 'stratinput:max_top20_holder_percent' },
+    ],
+    [
+      { text: `Min Top10 ${strat.min_top10_holder_percent > 0 ? fmtPct(strat.min_top10_holder_percent) : 'off'}`, callback_data: 'stratinput:min_top10_holder_percent' },
+      { text: `Max Top10 ${strat.max_top10_holder_percent < 100 ? fmtPct(strat.max_top10_holder_percent) : 'off'}`, callback_data: 'stratinput:max_top10_holder_percent' },
+    ],
+    [
+      { text: `Min Liq ${strat.min_liquidity_usd > 0 ? fmtUsd(strat.min_liquidity_usd) : 'off'}`, callback_data: 'stratinput:min_liquidity_usd' },
     ],
     [
       { text: `Saved ${strat.min_saved_wallet_holders || 'off'}`, callback_data: 'stratinput:min_saved_wallet_holders' },

@@ -34,6 +34,8 @@ export function filterCandidate(candidate) {
   const totalFees = candidate.metrics.gmgnTotalFeesSol;
   const gradVolume = candidate.metrics.graduatedVolumeUsd;
   const maxHolder = candidate.holders.maxHolderPercent;
+  const top10Pct = candidate.holders.top10Percent;
+  const liqUsd = Number(candidate.metrics.liquidityUsd || 0);
   const savedCount = candidate.savedWalletExposure.holderCount;
   const feeSol = candidate.feeClaim?.distributedSol;
   const holderCount = Number(candidate.metrics.holderCount || 0);
@@ -75,9 +77,24 @@ export function filterCandidate(candidate) {
     failures.push(`holders: ${holderCount} < ${strat.min_holders}`);
   }
 
-  // Top holder concentration
+  // Top holder concentration — individual max
   if (strat.max_top20_holder_percent < 100 && Number.isFinite(maxHolder) && maxHolder > strat.max_top20_holder_percent) {
     failures.push(`max top holder: ${maxHolder}% > ${strat.max_top20_holder_percent}%`);
+  }
+
+  // Top10 holder sum — minimum (too diffuse = bad data)
+  if (strat.min_top10_holder_percent > 0 && Number.isFinite(top10Pct) && top10Pct < strat.min_top10_holder_percent) {
+    failures.push(`top10 holder sum: ${top10Pct.toFixed(1)}% < ${strat.min_top10_holder_percent}%`);
+  }
+
+  // Top10 holder sum — maximum (too concentrated = dump risk)
+  if (strat.max_top10_holder_percent < 100 && Number.isFinite(top10Pct) && top10Pct > strat.max_top10_holder_percent) {
+    failures.push(`top10 holder sum: ${top10Pct.toFixed(1)}% > ${strat.max_top10_holder_percent}%`);
+  }
+
+  // Liquidity floor
+  if (strat.min_liquidity_usd > 0 && liqUsd < strat.min_liquidity_usd) {
+    failures.push(`liquidity: ${liqUsd} < ${strat.min_liquidity_usd}`);
   }
 
   // Saved wallet holders

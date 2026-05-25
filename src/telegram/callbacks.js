@@ -187,6 +187,9 @@ const STRAT_PRESETS = {
   min_gmgn_total_fee_sol: [0, 3, 5, 10, 20],
   max_ath_distance_pct: [0, -20, -30, -40, -50, -60],
   token_age_max_ms: [0, 1800000, 3600000, 7200000, 14400000, 43200000, 86400000],
+  min_top10_holder_percent: [0, 10, 20, 30, 40, 50],
+  max_top10_holder_percent: [30, 40, 50, 60, 70, 100],
+  min_liquidity_usd: [0, 3000, 5000, 8000, 10000, 15000, 20000],
 };
 
 function formatStratValue(key, value) {

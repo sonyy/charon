@@ -801,6 +801,8 @@ tbody tr:hover { background: #151515; }
 <div class="details-wrap" id="exitReasonsWrap"></div>
 <div class="details-wrap" id="tradeSummaryWrap"></div>
 
+<div class="details-wrap" id="analysisWrap"><div class="section-label" style="border-top:none;padding-top:0;margin-top:0">Analysis</div><div class="loading" style="padding:10px">Loading analysis...</div></div>
+
 <div class="details-wrap" id="detailsWrap"></div>
 
 <div class="filters">
@@ -831,6 +833,14 @@ tbody tr:hover { background: #151515; }
       <input type="date" id="closeDateTo" onchange="applyFilters()">
     </div>
   </div>
+  <label>Rows:</label>
+  <select id="rowsPerPageSelect" onchange="setRowsPerPage(this)">
+    <option value="10">10</option>
+    <option value="20" selected>20</option>
+    <option value="50">50</option>
+    <option value="100">100</option>
+    <option value="200">200</option>
+  </select>
   <span class="count" id="rowCount"></span>
   <div class="page-nav" id="pageNav"></div>
 </div>
@@ -1066,7 +1076,7 @@ function renderChart() {
 let allPositions = [];
 let sortKey = 'opened_at_ms';
 let sortDir = -1;
-const pageSize = 20;
+let rowsPerPage = parseInt(localStorage.getItem('charon_rows_per_page') || '20', 10);
 let currentPage = 1;
 let filteredPositions = [];
 let modeFilter = localStorage.getItem('charon_mode') || 'live';
@@ -1088,6 +1098,14 @@ if (savedMs) {
   if (parseInt(savedMs, 10) > 0) {
     refreshTimer = setInterval(() => fetchData(true), parseInt(savedMs, 10));
   }
+}
+
+// Restore saved rows per page
+const savedRows = localStorage.getItem('charon_rows_per_page');
+if (savedRows) {
+  rowsPerPage = parseInt(savedRows, 10);
+  const rpSel = document.getElementById('rowsPerPageSelect');
+  if (rpSel) rpSel.value = savedRows;
 }
 
 function setMode(mode) {
@@ -1268,26 +1286,6 @@ function renderDetails(d) {
   let html = '';
   html += settingsHtml;
 
-  // Best Perform section
-  let perform = [];
-  if (d.bestStrat) {
-    const sign = d.bestStratPnl >= 0 ? '+' : '';
-    perform.push('Best Strat: <strong>' + d.bestStrat + '</strong> (' + sign + d.bestStratPnl.toFixed(4) + ' SOL)');
-  }
-  if (d.topTpPct.length) {
-    perform.push('Best % TP: <strong>' + d.topTpPct.map(g => g.pct + '% (<span class="' + pnlCls(g.pnl) + '">' + fmtPnl(g.pnl) + '</span>)').join(', ') + '</strong>');
-  }
-  if (d.topSlPct.length) {
-    perform.push('Worst % SL: <strong>' + d.topSlPct.map(g => g.pct + '% (<span class="' + pnlCls(g.pnl) + '">' + fmtPnl(g.pnl) + '</span>)').join(', ') + '</strong>');
-  }
-  if (d.topTrailPct.length) {
-    perform.push('Best % Trail: <strong>' + d.topTrailPct.map(g => g.pct + '% (<span class="' + pnlCls(g.pnl) + '">' + fmtPnl(g.pnl) + '</span>)').join(', ') + '</strong>');
-  }
-  if (perform.length) {
-    html += '<div class="section-label">Best Perform Config</div>';
-    html += '<div class="row">' + perform.map(p => '<span class="item">' + p + '</span>').join('') + '</div>';
-  }
-
   el.innerHTML = html;
 }
 
@@ -1349,6 +1347,19 @@ function renderTradeSummary(d) {
     summary.push('Start: <strong>' + new Date(d.startTs).toLocaleString() + '</strong> <span style="color:#555">(' + parts.join(' ') + ' ago)</span>');
   }
 
+  const fmtPnl2 = (v) => (v >= 0 ? '+' : '') + v.toFixed(4) + ' SOL';
+  const pnlCls2 = (v) => v >= 0 ? 'g' : 'r';
+  if (d.bestStrat) {
+    const sign = d.bestStratPnl >= 0 ? '+' : '';
+    summary.push('Best Strat: <strong>' + d.bestStrat + '</strong> (' + sign + d.bestStratPnl.toFixed(4) + ' SOL)');
+  }
+  if (d.topSlPct.length) {
+    summary.push('Worst % SL: <strong>' + d.topSlPct.map(g => g.pct + '% (<span class="' + pnlCls2(g.pnl) + '">' + fmtPnl2(g.pnl) + '</span>)').join(', ') + '</strong>');
+  }
+  if (d.topTrailPct.length) {
+    summary.push('Best % Trail: <strong>' + d.topTrailPct.map(g => g.pct + '% (<span class="' + pnlCls2(g.pnl) + '">' + fmtPnl2(g.pnl) + '</span>)').join(', ') + '</strong>');
+  }
+
   if (summary.length) {
     el.innerHTML = '<div class="section-label" style="border-top:none;padding-top:0;margin-top:0">Trade Summary</div><div class="row">' + summary.map(p => '<span class="item">' + p + '</span>').join('') + '</div>';
   } else {
@@ -1357,7 +1368,7 @@ function renderTradeSummary(d) {
 }
 
 function renderPagination(total) {
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const totalPages = Math.max(1, Math.ceil(total / rowsPerPage));
   const el = document.getElementById('pageNav');
   if (totalPages <= 1) { el.innerHTML = ''; return; }
 
@@ -1403,10 +1414,69 @@ function renderPagination(total) {
 
 function goToPage(page) {
   const total = filteredPositions.length;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const totalPages = Math.max(1, Math.ceil(total / rowsPerPage));
   currentPage = Math.max(1, Math.min(page, totalPages));
   renderTable();
 }
+function setRowsPerPage(sel) {
+  rowsPerPage = parseInt(sel.value, 10);
+  localStorage.setItem('charon_rows_per_page', sel.value);
+  currentPage = 1;
+  renderTable();
+}
+function renderAnalysis(data) {
+  const el = document.getElementById('analysisWrap');
+  const fmtBucket = (b) => '<span class="item">' + (b.count + ' pos @ \u2264' + b.threshold + '%: WR=' + b.wr + '%') + '</span>';
+
+  // Build compact analisa + rekomendasi
+  let analisa = [];
+  let rekomendasi = [];
+
+  analisa.push('Total: <strong>' + data.total + '</strong> pos | WR=' + data.winRate + '% | AvgProfit=<span class="g">+' + (data.avgWin || 0).toFixed(4) + '</span> | AvgLoss=<span class="r">-' + (data.avgLoss || 0).toFixed(4) + '</span>');
+
+  // Top10 analysis
+  const bestTop10 = data.top10Buckets.filter(b => b.wr >= 40).sort((a,b) => b.wr - a.wr);
+  if (bestTop10.length) {
+    const b = bestTop10[0];
+    analisa.push('Top10% sweet spot: \u2264' + b.threshold + '% (WR=' + b.wr + '%)');
+    if (b.threshold >= 30) rekomendasi.push('top10HoderPct: min=30, max=40');
+  }
+
+  // Liquidity analysis
+  const bestLiq = data.liqBuckets.filter(b => b.wr > data.winRate + 3).sort((a,b) => b.wr - a.wr);
+  if (bestLiq.length) {
+    const b = bestLiq[0];
+    analisa.push('Liquidity \u2265$' + b.threshold.toLocaleString() + ': WR=' + b.wr + '% (' + b.count + ' pos)');
+    rekomendasi.push('minLiquidityUsd: 8000');
+  }
+
+  // Trailing analysis
+  const bestTr = data.trailingBreakdown.filter(t => t.count >= 5).sort((a,b) => b.wr - a.wr);
+  if (bestTr.length) {
+    const b = bestTr[0];
+    analisa.push('Best trailing: ' + b.pct + '% = WR=' + b.wr + '% (PnL=' + b.totalPnl + ')');
+    rekomendasi.push('trailingPercent: ' + b.pct);
+  }
+
+  // SL analysis
+  if (data.slData.count > 0) {
+    analisa.push('SL rate: ' + data.slData.count + ' pos (0% WR)');
+    rekomendasi.push('Hindari SL ketat — pakai trailing TP saja');
+  }
+
+  el.innerHTML = '<div class="section-label" style="border-top:none;padding-top:0;margin-top:0">Analysis</div>'
+    + '<div class="row"><span style="color:#aaa;white-space:normal;max-width:none">ANALISA: ' + analisa.join(' &bull; ') + '</span></div>'
+    + '<div class="row" style="margin-top:4px"><span style="color:#00ff41;white-space:normal;max-width:none">REKOMENDASI: ' + rekomendasi.join(' &bull; ') + '</span></div>';
+}
+
+function fetchAnalysis() {
+  fetch('/api/analysis').then(r => r.json()).then(data => {
+    renderAnalysis(data);
+  }).catch(err => {
+    document.getElementById('analysisWrap').innerHTML = '<div class="section-label" style="border-top:none;padding-top:0;margin-top:0">Analysis</div><div class="row"><span class="item" style="color:#888">Analysis unavailable</span></div>';
+  });
+}
+
 function fetchData(silent) {
   if (!silent) {
     document.getElementById('loadingState').style.display = 'block';
@@ -1424,9 +1494,10 @@ function fetchData(silent) {
     const curVal = sel.value;
     sel.innerHTML = '<option value="">All</option>' + strategies.map(s => '<option value="'+s+'">'+s+'</option>').join('');
     sel.value = curVal;
-    applyFilters();
+    applyFilters(false);
     document.getElementById('loadingState').style.display = 'none';
     renderChart();
+    fetchAnalysis();
   }).catch(err => {
     if (silent) return;
     document.getElementById('loadingState').innerHTML = '<span class="error">Error: '+err.message+'</span>';
@@ -1471,10 +1542,10 @@ function renderTable() {
     return;
   }
   const total = positions.length;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const totalPages = Math.max(1, Math.ceil(total / rowsPerPage));
   if (currentPage > totalPages) currentPage = totalPages;
-  const start = (currentPage - 1) * pageSize;
-  const page = positions.slice(start, start + pageSize);
+  const start = (currentPage - 1) * rowsPerPage;
+  const page = positions.slice(start, start + rowsPerPage);
 
   tbody.innerHTML = page.map((p,i) => {
     const rc = p.pnl_sol>0?'row-profit':p.pnl_sol<0?'row-loss':'';

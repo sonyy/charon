@@ -159,6 +159,107 @@ app.get('/api/settings', (req, res) => {
   }
 });
 
+app.get('/api/analysis', (req, res) => {
+  try {
+    const rows = db.prepare(`
+      SELECT p.pnl_sol, p.exit_reason, p.entry_mcap, p.size_sol, p.sl_percent, p.trailing_percent, p.opened_at_ms,
+             c.candidate_json
+      FROM dry_run_positions p
+      LEFT JOIN candidates c ON p.candidate_id = c.id
+      WHERE p.status = 'closed' AND c.candidate_json IS NOT NULL
+    `).all();
+
+    const fmt = (v) => v != null && Number.isFinite(v) ? Number(v) : null;
+
+    const analyzed = rows.map(r => {
+      const cj = JSON.parse(r.candidate_json);
+      const metrics = cj.metrics || {};
+      const holders = cj.holders || { holders: [] };
+      const top10 = holders.holders.slice(0, 10).reduce((s, h) => s + (h.percent || 0), 0);
+      return {
+        pnl_sol: fmt(r.pnl_sol),
+        exit_reason: r.exit_reason,
+        entry_mcap: fmt(r.entry_mcap),
+        size_sol: fmt(r.size_sol),
+        sl_percent: fmt(r.sl_percent),
+        trailing_percent: fmt(r.trailing_percent),
+        opened_at_ms: r.opened_at_ms,
+        top10Pct: top10,
+        liquidityUsd: fmt(metrics.liquidityUsd || 0),
+        holderCount: holders.count || metrics.holderCount || 0,
+        trendingVolume: fmt(metrics.trendingVolumeUsd || 0),
+        trendingSwaps: fmt(metrics.trendingSwaps || 0),
+      };
+    });
+
+    const wins = analyzed.filter(a => a.pnl_sol > 0);
+    const losses = analyzed.filter(a => a.pnl_sol < 0);
+    const total = analyzed.length;
+
+    function pct(arr) { return arr.length ? arr.filter(a => a.pnl_sol > 0).length / arr.length * 100 : 0; }
+    function avg(arr, fn) {
+      const vals = arr.map(fn).filter(v => v != null && Number.isFinite(v));
+      return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
+    }
+
+    const top10Buckets = [];
+    [20, 25, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 55, 60, 70, 80, 100].forEach(t => {
+      const g = analyzed.filter(a => a.top10Pct <= t);
+      if (g.length) top10Buckets.push({ threshold: t, count: g.length, wr: Math.round(pct(g) * 10) / 10 });
+    });
+
+    const liqBuckets = [];
+    [0, 1000, 3000, 5000, 8000, 10000, 15000, 20000].forEach(t => {
+      const g = analyzed.filter(a => a.liquidityUsd >= t);
+      if (g.length) liqBuckets.push({ threshold: t, count: g.length, wr: Math.round(pct(g) * 10) / 10 });
+    });
+
+    const slData = { count: 0, wr: 0, avgPnl: 0 };
+    const sl = analyzed.filter(a => a.exit_reason === 'SL');
+    slData.count = sl.length;
+    slData.wr = Math.round(pct(sl) * 10) / 10;
+    slData.avgPnl = avg(sl, a => a.pnl_sol);
+
+    const trailData = {};
+    analyzed.filter(a => a.exit_reason === 'TRAILING_TP').forEach(a => {
+      const pct = a.trailing_percent || 0;
+      if (!trailData[pct]) trailData[pct] = { count: 0, wins: 0, pnl: 0 };
+      trailData[pct].count++;
+      if (a.pnl_sol > 0) trailData[pct].wins++;
+      trailData[pct].pnl += a.pnl_sol;
+    });
+
+    const holderBuckets = [];
+    [10, 20, 30, 40, 50, 60, 80, 100].forEach(t => {
+      const g = analyzed.filter(a => a.holderCount >= t);
+      if (g.length) holderBuckets.push({ threshold: t, count: g.length, wr: Math.round(pct(g) * 10) / 10 });
+    });
+
+    res.json({
+      total,
+      winRate: Math.round(pct(analyzed) * 10) / 10,
+      winCount: wins.length,
+      lossCount: losses.length,
+      avgWin: avg(wins, a => a.pnl_sol),
+      avgLoss: avg(losses, a => Math.abs(a.pnl_sol)),
+      top10Buckets,
+      liqBuckets,
+      holderBuckets,
+      slData,
+      trailingBreakdown: Object.entries(trailData).sort((a,b) => Number(a[0]) - Number(b[0])).map(([k,v]) => ({
+        pct: k,
+        count: v.count,
+        wr: Math.round(v.wins / v.count * 1000) / 10,
+        totalPnl: Math.round(v.pnl * 10000) / 10000,
+      })),
+      avgEntryMcap: avg(analyzed, a => a.entry_mcap),
+    });
+  } catch (err) {
+    console.error('Analysis error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/strategies', (req, res) => {
   try {
     const rows = db.prepare("SELECT DISTINCT strategy_id FROM dry_run_positions WHERE strategy_id IS NOT NULL ORDER BY strategy_id").all();
