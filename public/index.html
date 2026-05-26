@@ -75,6 +75,15 @@ header h1::before {
   color: #666;
 }
 
+/* ── Swipe-to-confirm ── */
+.swipe-bar { position:relative; width:100%; height:32px; background:#1a1a1a; border:1px solid #444; cursor:pointer; overflow:hidden; user-select:none; }
+.swipe-track { position:absolute; top:0; left:0; height:100%; background:#00ff4111; width:0; pointer-events:none; }
+.swipe-thumb { position:absolute; top:0; left:0; width:40px; height:100%; background:#333; border-right:1px solid #555; display:flex; align-items:center; justify-content:center; color:#888; font-size:14px; z-index:2; touch-action:none; }
+.swipe-thumb.dragging { background:#444; }
+.swipe-label { position:absolute; top:0; left:0; width:100%; height:100%; display:flex; align-items:center; justify-content:center; color:#555; font-size:11px; letter-spacing:1px; pointer-events:none; }
+.swipe-bar.done .swipe-track { background:#00ff4133; }
+.swipe-bar.done .swipe-label { color:#00ff41; }
+
 .mode-bar {
   display: flex;
   margin: 0 0 8px;
@@ -1295,6 +1304,14 @@ function renderDetails(d) {
     const tBundle = strat?.config?.trending_max_bundler_rate ?? '-';
     const tInterval = set.trending_interval || '-';
     const tOrder = set.trending_order_by || '-';
+    const top20Holder = strat?.config?.max_top20_holder_percent;
+    const top10Holder = strat?.config?.max_top10_holder_percent;
+    const minLiq = strat?.config?.min_liquidity_usd;
+    const minFeeClaim = strat?.config?.min_fee_claim_sol;
+    const reqFeeClaim = strat?.config?.require_fee_claim;
+    const minGmgnFee = strat?.config?.min_gmgn_total_fee_sol;
+    const minGraduatedVol = strat?.config?.min_graduated_volume_usd;
+    const minSavedWallets = strat?.config?.min_saved_wallet_holders;
     settingsHtml = '<div class="section-label" style="border-top:none;padding-top:0;margin-top:0">Current Settings</div><div class="row-grid-3">'
       + '<span class="item">Mode: <strong>' + mode + '</strong></span>'
       + '<span class="item">Strat: <strong>' + stratName + '</strong></span>'
@@ -1308,13 +1325,20 @@ function renderDetails(d) {
       + '<span class="item">Max MCAP: <strong>$' + (maxMcap >= 1000 ? (maxMcap / 1000).toFixed(0) + 'K' : maxMcap) + '</strong></span>'
       + '<span class="item">Min Src: <strong>' + minSrc + '</strong></span>'
       + '<span class="item">Holders: <strong>' + minHolders + '</strong></span>'
+      + '<span class="item">Max Top20: <strong>' + (top20Holder != null && top20Holder < 100 ? top20Holder + '%' : 'off') + '</strong></span>'
+      + '<span class="item">Max Top10: <strong>' + (top10Holder != null && top10Holder < 100 ? top10Holder + '%' : 'off') + '</strong></span>'
+      + '<span class="item">Min Liq: <strong>' + (minLiq > 0 ? '$' + (minLiq >= 1000 ? (minLiq / 1000).toFixed(0) + 'K' : minLiq.toFixed(0)) : 'off') + '</strong></span>'
       + '<span class="item">Max Age: <strong>' + tAge + '</strong></span>'
       + '<span class="item">ATH Dist: <strong>' + (athDist !== '-' && Number(athDist) < 0 ? athDist + '%' : athDist == 0 ? '0%' : athDist) + '</strong></span>'
+      + '<span class="item">Fee Claim: <strong>' + (reqFeeClaim ? (minFeeClaim > 0 ? minFeeClaim + ' SOL' : 'ON') : 'OFF') + '</strong></span>'
+      + '<span class="item">GMGN Fee: <strong>' + (minGmgnFee > 0 ? minGmgnFee + ' SOL' : 'off') + '</strong></span>'
       + '<span class="item">LLM: <strong>' + (useLlm === true || useLlm === 'true' ? 'ON' : 'OFF') + '</strong>' + (llmConf !== '-' ? ' <span style="color:#555">(' + llmConf + '%)</span>' : '') + '</span>'
-      + (tMinVol > 0 ? '<span class="item">Tr.Vol: <strong>$' + tMinVol + '</strong></span>' : '')
-      + (tMinSwaps > 0 ? '<span class="item">Tr.Swaps: <strong>' + tMinSwaps + '</strong></span>' : '')
+      + '<span class="item">Min Vol: <strong>' + (tMinVol > 0 ? '$' + tMinVol : 'off') + '</strong></span>'
+      + '<span class="item">Min Swaps: <strong>' + (tMinSwaps > 0 ? tMinSwaps : 'off') + '</strong></span>'
       + (tRug !== '-' ? '<span class="item">Rug: <strong>' + tRug + '</strong></span>' : '')
       + (tBundle !== '-' ? '<span class="item">Bundle: <strong>' + tBundle + '</strong></span>' : '')
+      + (minGraduatedVol > 0 ? '<span class="item">Grad.Vol: <strong>$' + minGraduatedVol + '</strong></span>' : '')
+      + (minSavedWallets > 0 ? '<span class="item">SavedWal: <strong>' + minSavedWallets + '</strong></span>' : '')
       + '<span class="item">Trend: <strong>' + tInterval + '</strong> · ' + tOrder + '</span>'
       + '</div>';
   }
@@ -1436,21 +1460,34 @@ function renderAnalysis(data) {
   }
 
   // ── RECOMMENDATIONS ──
+  const recLabels = {
+    top10HolderPercent: 'Max Top10',
+    minLiquidityUsd: 'Min Liq',
+    minHolders: 'Min Holders',
+    entryMcapUsd: 'Max MCAP',
+    minSizeSol: 'Min Size',
+    trendingVolumeUsd: 'Min Vol',
+    trendingSwaps: 'Min Swaps',
+    trailingPercent: 'Trail',
+  };
   const usable = (data.recommendations || []).filter(r => r.metric !== 'SL' && r.metric !== 'tpPercent' && r.metric !== 'maxMcapUsd' && r.metric !== 'minMcapUsd');
   if (usable.length) {
+    _lastAnalysisRecs = usable;
     h += '<div class="anal-section"><div class="anal-section-title" style="color:#00ff41">RECOMMENDATIONS</div><div class="anal-recs">' +
       usable.map(r => {
         const val = r.label || (r.metric === 'trailingPercent' ? r.value + '%' : r.value);
-        const label = r.metric === 'trailingPercent' ? 'Trail' : r.metric.replace(/([A-Z])/g,' $1').replace(/^[a-z]/,c=>c.toUpperCase()).trim();
+        const label = recLabels[r.metric] || r.metric.replace(/([A-Z])/g,' $1').replace(/^[a-z]/,c=>c.toUpperCase()).trim();
         const cur = r.current;
         return '<div class="anal-rec"><span class="anal-rec-label">' + label + '</span>' +
           (cur ? '<span class="anal-rec-val" style="color:#888;text-decoration:line-through">' + cur + '</span><span class="anal-rec-sep" style="color:#555;margin:0 4px">→</span>' : '') +
           '<span class="anal-rec-val">' + val + '</span><span class="anal-rec-reason">' + r.reason + '</span></div>';
       }).join('') +
+      '<div style="padding:6px 0"><div class="swipe-bar" id="swipe-analysis"><div class="swipe-track"></div><div class="swipe-thumb">\u00bb</div><div class="swipe-label">SLIDE TO APPLY</div></div></div>' +
       '</div></div>';
   }
 
   el.innerHTML = '<div style="text-align:center;padding:0 0 6px 0">' + analysisButtons + '</div>' + label + h;
+  initSwipe('swipe-analysis', applyAnalysisRecs);
 }
 
 function fetchAnalysis() {
@@ -1463,7 +1500,12 @@ function fetchAnalysis() {
   });
 }
 
+let _lastRecs = [];
+let _lastAnalysisRecs = [];
+
 function renderPotential(data) {
+  _lastRecs = data.recommendations || [];
+
   const el = document.getElementById('analysisWrap');
   if (data.error || !data.totalRejected) {
     el.innerHTML = analysisButtons + '<div style="padding:6px 0;color:#555">Potential analysis: ' + (data.error || 'No data') + '</div>';
@@ -1479,16 +1521,6 @@ function renderPotential(data) {
     '<div class="anal-sum-item"><span class="anal-label">Rejected</span><span class="anal-val">' + data.totalRejected + '</span></div>' +
     '<div class="anal-sum-item"><span class="anal-label">Scored</span><span class="anal-val">' + data.totalScored + '</span></div>' +
     '</div>';
-
-  // Distribution
-  const dist = data.distribution;
-  const total = dist.high + dist.medium + dist.low || 1;
-  h += '<div class="anal-section"><div class="anal-section-title">SCORE DISTRIBUTION</div>' +
-    '<div style="display:flex;gap:4px;padding:4px 0;font-size:11px">' +
-    '<span style="flex:' + dist.high + ';background:#00ff4133;text-align:center;padding:2px">High ' + Math.round(dist.high/total*100) + '%</span>' +
-    '<span style="flex:' + dist.medium + ';background:#ffd70033;text-align:center;padding:2px">Med ' + Math.round(dist.medium/total*100) + '%</span>' +
-    '<span style="flex:' + dist.low + ';background:#ff413633;text-align:center;padding:2px">Low ' + Math.round(dist.low/total*100) + '%</span>' +
-    '</div></div>';
 
   // Winner profile ranges
   h += '<div class="anal-section"><div class="anal-section-title">WINNER PROFILE</div><table style="width:100%;font-size:11px;border-collapse:collapse">' +
@@ -1507,6 +1539,16 @@ function renderPotential(data) {
       '<td style="text-align:center;color:#ff4136">' + fmt[key](r.loserMin) + ' – ' + fmt[key](r.loserMax) + '</td></tr>';
   }
   h += '</table></div>';
+
+  // Distribution
+  const dist = data.distribution;
+  const total = dist.high + dist.medium + dist.low || 1;
+  h += '<div class="anal-section"><div class="anal-section-title">SCORE DISTRIBUTION</div>' +
+    '<div style="display:flex;gap:4px;padding:4px 0;font-size:11px">' +
+    '<span style="flex:' + dist.high + ';background:#00ff4133;text-align:center;padding:2px">High ' + Math.round(dist.high/total*100) + '%</span>' +
+    '<span style="flex:' + dist.medium + ';background:#ffd70033;text-align:center;padding:2px">Med ' + Math.round(dist.medium/total*100) + '%</span>' +
+    '<span style="flex:' + dist.low + ';background:#ff413633;text-align:center;padding:2px">Low ' + Math.round(dist.low/total*100) + '%</span>' +
+    '</div></div>';
 
   // Top potential candidates
   if (data.topPotential && data.topPotential.length) {
@@ -1542,13 +1584,14 @@ function renderPotential(data) {
   if (data.recommendations && data.recommendations.length) {
     h += '<div class="anal-section"><div class="anal-section-title" style="color:#00ff41">RECOMMENDATIONS — LOOSEN FILTERS</div>';
     data.recommendations.forEach(r => {
+      const isPct = r.filter.includes('Holder') || r.filter.includes('Top');
       const oldVal = r.filter.includes('MCAP') ? '$' + Number(r.current).toLocaleString()
         : r.filter.includes('Fee') ? r.current + ' SOL'
-        : r.filter.includes('Holder') ? r.current + '%'
+        : isPct ? r.current + '%'
         : r.current;
       const newVal = r.filter.includes('MCAP') ? '$' + Number(r.suggest).toLocaleString()
         : r.filter.includes('Fee') ? r.suggest + ' SOL'
-        : r.filter.includes('Holder') ? r.suggest + '%'
+        : isPct ? r.suggest + '%'
         : r.suggest;
       h += '<div class="anal-rec" style="font-size:11px">' +
         '<span class="anal-rec-label">' + r.filter + '</span>' +
@@ -1558,11 +1601,103 @@ function renderPotential(data) {
         '<span class="anal-rec-reason">' + r.candidatesLost + ' potential candidates lost</span>' +
         '</div>';
     });
+    h += '<div style="padding:6px 0"><div class="swipe-bar" id="swipe-potential"><div class="swipe-track"></div><div class="swipe-thumb">\u00bb</div><div class="swipe-label">SLIDE TO APPLY</div></div></div>';
     h += '</div>';
   }
 
   el.innerHTML = '<div style="text-align:center;padding:0 0 6px 0">' + analysisButtons + '</div>' + label + h;
+  initSwipe('swipe-potential', applyRecs);
 }
+
+function initSwipe(id, onDone) {
+  const bar = document.getElementById(id);
+  if (!bar) return;
+  const thumb = bar.querySelector('.swipe-thumb');
+  const track = bar.querySelector('.swipe-track');
+  let dragging = false, done = false;
+
+  function reset(anim) {
+    dragging = false; done = false;
+    bar.classList.remove('done');
+    thumb.style.left = '0px';
+    track.style.width = '0';
+    if (anim) { thumb.style.transition = 'left .3s'; track.style.transition = 'width .3s'; }
+    else { thumb.style.transition = 'none'; track.style.transition = 'none'; }
+    setTimeout(() => { thumb.style.transition = 'none'; track.style.transition = 'none'; }, 350);
+  }
+
+  function move(clientX) {
+    if (done) return;
+    const rect = bar.getBoundingClientRect();
+    let x = clientX - rect.left - 20;
+    x = Math.max(0, Math.min(rect.width - 40, x));
+    thumb.style.left = x + 'px';
+    track.style.width = (x + 20) + 'px';
+    if (x >= rect.width - 44) {
+      done = true;
+      bar.classList.add('done');
+      thumb.style.left = (rect.width - 40) + 'px';
+      track.style.width = rect.width + 'px';
+      thumb.style.transition = 'none';
+      track.style.transition = 'none';
+      setTimeout(() => {
+        onDone();
+        setTimeout(() => reset(true), 100);
+      }, 200);
+    }
+  }
+
+  thumb.addEventListener('mousedown', e => {
+    dragging = true; done = false;
+    thumb.classList.add('dragging');
+    thumb.style.transition = 'none'; track.style.transition = 'none';
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', e => { if (dragging) move(e.clientX); });
+  document.addEventListener('mouseup', () => {
+    if (dragging) { dragging = false; thumb.classList.remove('dragging'); if (!done) reset(true); }
+  });
+
+  thumb.addEventListener('touchstart', e => {
+    dragging = true; done = false;
+    thumb.classList.add('dragging');
+    thumb.style.transition = 'none'; track.style.transition = 'none';
+    e.preventDefault();
+  }, { passive: false });
+  document.addEventListener('touchmove', e => { if (dragging) move(e.touches[0].clientX); }, { passive: false });
+  document.addEventListener('touchend', () => {
+    if (dragging) { dragging = false; thumb.classList.remove('dragging'); if (!done) reset(true); }
+  });
+}
+
+function sendRecs(recs) {
+  let password = sessionStorage.getItem('opencode_pass');
+  if (!password) {
+    password = prompt('Enter password to apply recommendations:');
+    if (!password) return;
+    sessionStorage.setItem('opencode_pass', password);
+  }
+
+  fetch('/api/apply-recommendations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password, recommendations: recs }),
+  }).then(r => r.json()).then(data => {
+    if (data.error) {
+      if (data.error === 'Wrong password') sessionStorage.removeItem('opencode_pass');
+      alert('Failed: ' + data.error);
+    } else {
+      alert('Applied ' + data.applied.length + ' recommendations:\n' + data.applied.join('\n'));
+      fetchAnalysis();
+      fetchPotential();
+    }
+  }).catch(err => {
+    alert('Error: ' + err.message);
+  });
+}
+
+function applyRecs() { sendRecs(_lastRecs); }
+function applyAnalysisRecs() { sendRecs(_lastAnalysisRecs); }
 
 function fetchPotential() {
   const el = document.getElementById('analysisWrap');

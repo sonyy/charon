@@ -12,9 +12,16 @@ if (!fs.existsSync(dbPath)) {
   console.error(`Database not found at ${dbPath}`);
   process.exit(1);
 }
-const db = new Database(dbPath, { readonly: true });
-db.pragma('journal_mode = WAL');
-db.pragma('synchronous = NORMAL');
+let db;
+function openDb(readonly = true) {
+  if (db) { try { db.close(); } catch {} }
+  db = new Database(dbPath, { readonly });
+  if (!readonly) {
+    db.pragma('journal_mode = WAL');
+    db.pragma('synchronous = NORMAL');
+  }
+}
+openDb(true);
 
 const app = express();
 
@@ -22,8 +29,12 @@ const app = express();
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Headers', 'Content-Type');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
   next();
 });
+
+app.use(express.json());
 
 app.get('/api/summary', (req, res) => {
   try {
@@ -604,14 +615,14 @@ app.get('/api/potential-analysis', (req, res) => {
 
     // Map filter names to config keys and recommended new values
     const filterMap = [
-      { name: 'top holder', configKey: 'max_top20_holder_percent', configVal: config.max_top20_holder_percent, isMax: true, desc: 'TopHolder max' },
+      { name: 'top holder', configKey: 'max_top20_holder_percent', configVal: config.max_top20_holder_percent, isMax: true, desc: 'Max Top20' },
       { name: 'market cap min', configKey: 'min_mcap_usd', configVal: config.min_mcap_usd, isMax: false, desc: 'Min MCAP' },
       { name: 'market cap max', configKey: 'max_mcap_usd', configVal: config.max_mcap_usd, isMax: true, desc: 'Max MCAP' },
-      { name: 'trending volume', configKey: 'trending_min_volume_usd', configVal: config.trending_min_volume_usd, isMax: false, desc: 'Min Volume' },
+      { name: 'trending volume', configKey: 'trending_min_volume_usd', configVal: config.trending_min_volume_usd, isMax: false, desc: 'Min Vol' },
       { name: 'trending swaps', configKey: 'trending_min_swaps', configVal: config.trending_min_swaps, isMax: false, desc: 'Min Swaps' },
       { name: 'liquidity', configKey: 'min_liquidity_usd', configVal: config.min_liquidity_usd, isMax: false, desc: 'Min Liq' },
       { name: 'holders', configKey: 'min_holders', configVal: config.min_holders, isMax: false, desc: 'Min Holders' },
-      { name: 'fee claim', configKey: 'min_fee_claim_sol', configVal: config.min_fee_claim_sol, isMax: false, desc: 'Min Fee Claim' },
+      { name: 'fee claim', configKey: 'min_fee_claim_sol', configVal: config.min_fee_claim_sol, isMax: false, desc: 'Fee Claim' },
     ];
 
     const recommendations = [];
@@ -681,6 +692,73 @@ app.get('/api/potential-analysis', (req, res) => {
       worstFilters: worstFilters.map(([name, totalScore]) => ({ filter: name, totalScore })),
       recommendations: loosenRecs,
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Apply recommendations ──
+const PASSWORD = 'GyvdhH66g3%5b';
+
+const recMap = {
+  // Potential section (filter field)
+  'Min MCAP': 'min_mcap_usd',
+  'Max MCAP': 'max_mcap_usd',
+  'Max Top20': 'max_top20_holder_percent',
+  'Min Vol': 'trending_min_volume_usd',
+  'Min Swaps': 'trending_min_swaps',
+  'Min Liq': 'min_liquidity_usd',
+  'Min Holders': 'min_holders',
+  'Fee Claim': 'min_fee_claim_sol',
+  // Analysis section (metric field)
+  'top10HolderPercent': 'max_top10_holder_percent',
+  'minLiquidityUsd': 'min_liquidity_usd',
+  'minHolders': 'min_holders',
+  'entryMcapUsd': 'max_mcap_usd',
+  'minSizeSol': 'position_size_sol',
+  'trendingVolumeUsd': 'trending_min_volume_usd',
+  'trendingSwaps': 'trending_min_swaps',
+  'trailingPercent': 'trailing_percent',
+};
+
+app.post('/api/apply-recommendations', (req, res) => {
+  try {
+    const { password, recommendations } = req.body || {};
+    if (password !== PASSWORD) {
+      return res.status(401).json({ error: 'Wrong password' });
+    }
+    if (!Array.isArray(recommendations) || !recommendations.length) {
+      return res.status(400).json({ error: 'No recommendations to apply' });
+    }
+
+    const activeStrategy = db.prepare("SELECT id, config_json FROM strategies WHERE enabled = 1 LIMIT 1").get();
+    if (!activeStrategy) {
+      return res.status(404).json({ error: 'No active strategy found' });
+    }
+
+    const config = JSON.parse(activeStrategy.config_json || '{}');
+    const applied = [];
+
+    for (const rec of recommendations) {
+      const key = recMap[rec.filter] || recMap[rec.metric];
+      if (!key) continue;
+      if (config[key] === undefined) continue;
+      config[key] = rec.suggest ?? rec.value;
+      applied.push(rec.filter || rec.metric);
+    }
+
+    if (!applied.length) {
+      return res.status(400).json({ error: 'No matching config keys found' });
+    }
+
+    openDb(false);
+    try {
+      db.prepare("UPDATE strategies SET config_json = ? WHERE id = ?").run(JSON.stringify(config), activeStrategy.id);
+    } finally {
+      openDb(true);
+    }
+
+    res.json({ success: true, applied, config });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
