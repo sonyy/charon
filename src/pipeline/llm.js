@@ -14,7 +14,7 @@ export function normalizeDecision(parsed, fallbackReason = '') {
     reason: String(parsed?.reason || fallbackReason).slice(0, 1000),
     risks: Array.isArray(parsed?.risks) ? parsed.risks.map(String).slice(0, 8) : [],
     suggested_tp_percent: Number(parsed?.suggested_tp_percent) || numSetting('default_tp_percent', 50),
-    suggested_sl_percent: Number(parsed?.suggested_sl_percent) || numSetting('default_sl_percent', -25),
+    suggested_sl_percent: Number(parsed?.suggested_sl_percent) ?? numSetting('default_sl_percent', -25),
     raw: parsed,
   };
 }

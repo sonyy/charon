@@ -482,6 +482,30 @@ header h1::before {
   margin-top: 6px;
 }
 
+/* ── Analysis sections ── */
+.anal-section { margin-top: 8px; }
+.anal-section-title { color:#555; font-size:10px; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px; }
+.anal-summary { display:flex; flex-wrap:wrap; gap:3px 16px; background:#151515; border-radius:3px; padding:5px 8px; margin-top:3px; }
+.anal-sum-item { }
+.anal-label { display:block; color:#666; font-size:9px; text-transform:uppercase; letter-spacing:0.5px; }
+.anal-val { display:block; font-size:13px; font-weight:bold; color:#ccc; }
+.anal-exits { display:flex; flex-wrap:wrap; gap:2px 12px; font-size:11px; color:#888; line-height:1.6; }
+.anal-exit-name { color:#aaa; font-weight:bold; }
+.anal-bests { display:flex; flex-wrap:wrap; gap:2px 16px; font-size:11px; line-height:1.6; }
+.anal-best { white-space:nowrap; }
+.anal-best-label { color:#888; }
+.anal-best-val { color:#ccc; font-weight:bold; }
+.anal-best-info { color:#555; font-size:10px; }
+.anal-dim { color:#555; font-size:10px; }
+.anal-mcaps { font-size:11px; line-height:1.6; }
+.anal-mcap { white-space:nowrap; }
+.anal-recs { display:flex; flex-direction:column; gap:3px; }
+.anal-rec { display:flex; align-items:baseline; gap:6px; background:#0d1f0d; border-left:2px solid #00ff41; padding:3px 8px; border-radius:2px; font-size:11px; flex-wrap:wrap; }
+.anal-rec-label { color:#00ff41; font-weight:bold; min-width:90px; }
+.anal-rec-val { color:#fff; font-weight:bold; min-width:50px; }
+.anal-rec-reason { color:#666; font-size:10px; }
+
+
 table {
   width: 100%;
   table-layout: fixed;
@@ -798,10 +822,14 @@ tbody tr:hover { background: #151515; }
   <canvas id="portfolioChart"></canvas>
 </div>
 
-<div class="details-wrap" id="exitReasonsWrap"></div>
-<div class="details-wrap" id="tradeSummaryWrap"></div>
 
-<div class="details-wrap" id="analysisWrap"><div class="section-label" style="border-top:none;padding-top:0;margin-top:0">Analysis</div><div class="loading" style="padding:10px">Loading analysis...</div></div>
+
+<div class="details-wrap" id="analysisWrap">
+  <div style="text-align:center;padding:6px 0">
+    <button onclick="fetchAnalysis()" style="background:#1a1a1a;color:#c0c0c0;border:1px solid #444;padding:8px 18px;cursor:pointer;font-family:inherit;font-size:13px;text-transform:uppercase;letter-spacing:1px">Run Analysis</button>
+    <button onclick="fetchPotential()" style="background:#1a1a1a;color:#c0c0c0;border:1px solid #444;padding:8px 18px;cursor:pointer;font-family:inherit;font-size:13px;text-transform:uppercase;letter-spacing:1px;margin-left:8px">Potential</button>
+  </div>
+</div>
 
 <div class="details-wrap" id="detailsWrap"></div>
 
@@ -934,7 +962,15 @@ function renderChart() {
 
   // Set zoom range anchored to latest point
   const xMax = chartPoints.length - 1; // latest point index
-  if (!chartXMin || chartXMin >= xMax) chartXMin = 1; // initial: first real trade (after origin)
+  if (!chartXMin || chartXMin >= xMax) {
+    // Default zoom: last 24 hours
+    const latestTs = chartPoints[chartPoints.length - 1].t;
+    const oneDayAgo = latestTs - 86400000;
+    chartXMin = 1;
+    for (let i = 1; i < chartPoints.length; i++) {
+      if (chartPoints[i].t >= oneDayAgo) { chartXMin = i; break; }
+    }
+  }
   chartXMinBound = 1; // can't go before first trade
 
   const ctx = document.getElementById('portfolioChart').getContext('2d');
@@ -1289,84 +1325,6 @@ function renderDetails(d) {
   el.innerHTML = html;
 }
 
-function renderExitReasons(d) {
-  const el = document.getElementById('exitReasonsWrap');
-  const fmtPnl = (v) => (v >= 0 ? '+' : '') + v.toFixed(4) + ' SOL';
-  const pnlCls = (v) => v >= 0 ? 'g' : 'r';
-
-  let exits = [];
-  exits.push('SL: <strong>' + d.slCount + '</strong> <span class="' + pnlCls(d.slPnl) + '">(' + fmtPnl(d.slPnl) + ')</span>');
-  exits.push('TP: <strong>' + d.tpCount + '</strong> <span class="' + pnlCls(d.tpPnl) + '">(' + fmtPnl(d.tpPnl) + ')</span>');
-  exits.push('Trail: <strong>' + d.trailCount + '</strong> <span class="' + pnlCls(d.trailPnl) + '">(' + fmtPnl(d.trailPnl) + ')</span>');
-  if (d.maxHoldCount > 0) {
-    exits.push('Max Hold: <strong>' + d.maxHoldCount + '</strong> <span class="' + pnlCls(d.maxHoldPnl) + '">(' + fmtPnl(d.maxHoldPnl) + ')</span>');
-  }
-  if (d.manualCount > 0) {
-    exits.push('Manual: <strong>' + d.manualCount + '</strong> <span class="' + pnlCls(d.manualPnl) + '">(' + fmtPnl(d.manualPnl) + ')</span>');
-  }
-  if (d.otherCount > 0) {
-    exits.push('Other: <strong>' + d.otherCount + '</strong> <span class="' + pnlCls(d.otherPnl) + '">(' + fmtPnl(d.otherPnl) + ')</span>');
-  }
-
-  el.innerHTML = '<div class="section-label" style="border-top:none;padding-top:0;margin-top:0">Exit Reasons</div><div class="row-grid-2">' + exits.map(p => '<span class="item">' + p + '</span>').join('') + '</div>';
-}
-
-function renderTradeSummary(d) {
-  const el = document.getElementById('tradeSummaryWrap');
-  let summary = [];
-
-  if (d.best) {
-    summary.push('Max Profit: <strong class="g">+' + d.best.pnl_percent.toFixed(1) + '%</strong> <span class="g">(' + d.best.pnl_sol.toFixed(4) + ' SOL)</span>');
-  }
-  if (d.worst) {
-    summary.push('Max Loss: <strong class="r">' + d.worst.pnl_percent.toFixed(1) + '%</strong> <span class="r">(' + d.worst.pnl_sol.toFixed(4) + ' SOL)</span>');
-  }
-  if (d.maxModal > 0) {
-    summary.push('Max Concurrent SOL in Trades: <strong>' + d.maxModal.toFixed(4) + '</strong> SOL (' + d.maxModalCnt + ' pos)');
-  }
-  if (d.avgMcap > 0) {
-    const avgStr = d.avgMcap >= 1000000 ? (d.avgMcap/1000000).toFixed(1)+'M' : d.avgMcap >= 1000 ? (d.avgMcap/1000).toFixed(1)+'K' : d.avgMcap.toFixed(0);
-    summary.push('Avg MCAP: <strong>$' + avgStr + '</strong>');
-  }
-  if (d.startTs) {
-    const now = Date.now();
-    const diff = now - d.startTs;
-    const sec = Math.floor(diff / 1000);
-    const min = Math.floor(sec / 60);
-    const hr = Math.floor(min / 60);
-    const day = Math.floor(hr / 24);
-    const month = Math.floor(day / 30);
-    const year = Math.floor(month / 12);
-    const parts = [];
-    if (year > 0) parts.push(year + 'y');
-    if (month % 12 > 0) parts.push((month % 12) + 'mo');
-    if (day % 30 > 0) parts.push((day % 30) + 'd');
-    if (hr % 24 > 0) parts.push((hr % 24) + 'h');
-    if (min % 60 > 0) parts.push((min % 60) + 'm');
-    parts.push((sec % 60) + 's');
-    summary.push('Start: <strong>' + new Date(d.startTs).toLocaleString() + '</strong> <span style="color:#555">(' + parts.join(' ') + ' ago)</span>');
-  }
-
-  const fmtPnl2 = (v) => (v >= 0 ? '+' : '') + v.toFixed(4) + ' SOL';
-  const pnlCls2 = (v) => v >= 0 ? 'g' : 'r';
-  if (d.bestStrat) {
-    const sign = d.bestStratPnl >= 0 ? '+' : '';
-    summary.push('Best Strat: <strong>' + d.bestStrat + '</strong> (' + sign + d.bestStratPnl.toFixed(4) + ' SOL)');
-  }
-  if (d.topSlPct.length) {
-    summary.push('Worst % SL: <strong>' + d.topSlPct.map(g => g.pct + '% (<span class="' + pnlCls2(g.pnl) + '">' + fmtPnl2(g.pnl) + '</span>)').join(', ') + '</strong>');
-  }
-  if (d.topTrailPct.length) {
-    summary.push('Best % Trail: <strong>' + d.topTrailPct.map(g => g.pct + '% (<span class="' + pnlCls2(g.pnl) + '">' + fmtPnl2(g.pnl) + '</span>)').join(', ') + '</strong>');
-  }
-
-  if (summary.length) {
-    el.innerHTML = '<div class="section-label" style="border-top:none;padding-top:0;margin-top:0">Trade Summary</div><div class="row">' + summary.map(p => '<span class="item">' + p + '</span>').join('') + '</div>';
-  } else {
-    el.innerHTML = '';
-  }
-}
-
 function renderPagination(total) {
   const totalPages = Math.max(1, Math.ceil(total / rowsPerPage));
   const el = document.getElementById('pageNav');
@@ -1424,56 +1382,195 @@ function setRowsPerPage(sel) {
   currentPage = 1;
   renderTable();
 }
+const analysisButtons = '<button onclick="fetchAnalysis()" style="background:#1a1a1a;color:#c0c0c0;border:1px solid #444;padding:6px 14px;cursor:pointer;font-family:inherit;font-size:12px;text-transform:uppercase;letter-spacing:1px">Run Analysis</button><button onclick="fetchPotential()" style="background:#1a1a1a;color:#c0c0c0;border:1px solid #444;padding:6px 14px;cursor:pointer;font-family:inherit;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-left:6px">Potential</button>';
+
 function renderAnalysis(data) {
   const el = document.getElementById('analysisWrap');
-  const fmtBucket = (b) => '<span class="item">' + (b.count + ' pos @ \u2264' + b.threshold + '%: WR=' + b.wr + '%') + '</span>';
-
-  // Build compact analisa + rekomendasi
-  let analisa = [];
-  let rekomendasi = [];
-
-  analisa.push('Total: <strong>' + data.total + '</strong> pos | WR=' + data.winRate + '% | AvgProfit=<span class="g">+' + (data.avgWin || 0).toFixed(4) + '</span> | AvgLoss=<span class="r">-' + (data.avgLoss || 0).toFixed(4) + '</span>');
-
-  // Top10 analysis
-  const bestTop10 = data.top10Buckets.filter(b => b.wr >= 40).sort((a,b) => b.wr - a.wr);
-  if (bestTop10.length) {
-    const b = bestTop10[0];
-    analisa.push('Top10% sweet spot: \u2264' + b.threshold + '% (WR=' + b.wr + '%)');
-    if (b.threshold >= 30) rekomendasi.push('top10HoderPct: min=30, max=40');
+  if (!data.total) {
+    el.innerHTML = '<div class="section-label" style="border-top:none;padding-top:0;margin-top:0">Analysis</div><div style="padding:10px;color:#555">No closed positions to analyze</div>';
+    return;
   }
 
-  // Liquidity analysis
-  const bestLiq = data.liqBuckets.filter(b => b.wr > data.winRate + 3).sort((a,b) => b.wr - a.wr);
-  if (bestLiq.length) {
-    const b = bestLiq[0];
-    analisa.push('Liquidity \u2265$' + b.threshold.toLocaleString() + ': WR=' + b.wr + '% (' + b.count + ' pos)');
-    rekomendasi.push('minLiquidityUsd: 8000');
+  const fmt = v => (v == null || !Number.isFinite(v)) ? '-' : (v >= 0 ? '<span class="g">+' + v.toFixed(4) : '<span class="r">' + v.toFixed(4)) + '</span>';
+  const pct = v => v == null || !Number.isFinite(v) ? '-' : v.toFixed(1) + '%';
+  const usd = v => v == null || !Number.isFinite(v) ? '-' : (v >= 1e6 ? '$'+(v/1e6).toFixed(2)+'M' : v >= 1e3 ? '$'+(v/1e3).toFixed(1)+'K' : '$'+v.toFixed(0));
+  const num = v => v == null ? '-' : v.toLocaleString();
+  const wc = v => v >= 50 ? 'g' : v >= 30 ? '' : 'r';
+
+  const label = '<div class="section-label" style="border-top:none;padding-top:0;margin-top:0">Analysis</div>';
+  let h = '';
+
+  // ── SUMMARY ──
+  const pfStr = data.profitFactor != null ? (data.profitFactor === Infinity ? '∞' : data.profitFactor.toFixed(2)) : '-';
+  h += '<div class="anal-summary">' +
+    '<div class="anal-sum-item"><span class="anal-label">Total</span><span class="anal-val">' + data.total + '</span></div>' +
+    '<div class="anal-sum-item"><span class="anal-label">WR</span><span class="anal-val ' + wc(data.winRate) + '">' + pct(data.winRate) + '</span></div>' +
+    '<div class="anal-sum-item"><span class="anal-label">W/L</span><span class="anal-val"><span class="g">+' + data.winCount + '</span>/<span class="r">' + data.lossCount + '</span></span></div>' +
+    '<div class="anal-sum-item"><span class="anal-label">PF</span><span class="anal-val ' + (data.profitFactor >= 1.5 ? 'g' : data.profitFactor < 1 ? 'r' : '') + '">' + pfStr + '</span></div>' +
+    '<div class="anal-sum-item"><span class="anal-label">Total PnL</span><span class="anal-val ' + (data.totalPnl >= 0 ? 'g' : 'r') + '">' + fmt(data.totalPnl) + '</span></div>' +
+    '</div>';
+
+  // ── RANGE ──
+  if (data.biggestWin || data.biggestLoss) {
+    h += '<div class="anal-section"><div class="anal-section-title">RANGE</div><div class="anal-bests">' +
+      (data.biggestWin ? '<span class="anal-best"><span class="anal-best-label">Biggest Win</span> <span class="anal-best-val g">' + fmt(data.biggestWin) + '</span></span>' : '') +
+      (data.biggestLoss ? '<span class="anal-best"><span class="anal-best-label">Biggest Loss</span> <span class="anal-best-val r">' + fmt(data.biggestLoss) + '</span></span>' : '') +
+      (data.avgDurationWin != null ? '<span class="anal-best"><span class="anal-best-label">Avg Hold (W)</span> <span class="anal-best-val">' + data.avgDurationWin + 'h</span></span>' : '') +
+      (data.avgDurationLoss != null ? '<span class="anal-best"><span class="anal-best-label">Avg Hold (L)</span> <span class="anal-best-val">' + data.avgDurationLoss + 'h</span></span>' : '') +
+      '</div></div>';
   }
 
-  // Trailing analysis
-  const bestTr = data.trailingBreakdown.filter(t => t.count >= 5).sort((a,b) => b.wr - a.wr);
-  if (bestTr.length) {
-    const b = bestTr[0];
-    analisa.push('Best trailing: ' + b.pct + '% = WR=' + b.wr + '% (PnL=' + b.totalPnl + ')');
-    rekomendasi.push('trailingPercent: ' + b.pct);
+  // ── EXITS (count + PnL per exit reason) ──
+  if (data.exitBreakdown && data.exitBreakdown.length) {
+    const rows = data.exitBreakdown.map(e =>
+      '<span class="anal-exit"><span class="anal-exit-name">' + e.reason + '</span> ' + num(e.count) + ' (' + pct(e.pct) + ') \u00b7 PnL ' + fmt(e.totalPnl) + '</span>'
+    ).join(' ');
+    h += '<div class="anal-section"><div class="anal-section-title">EXITS</div><div class="anal-exits">' + rows + '</div></div>';
   }
 
-  // SL analysis
-  if (data.slData.count > 0) {
-    analisa.push('SL rate: ' + data.slData.count + ' pos (0% WR)');
-    rekomendasi.push('Hindari SL ketat — pakai trailing TP saja');
+  // ── BEST PARAMS (dynamic from backend) ──
+  if (data.bestParams && data.bestParams.length) {
+    h += '<div class="anal-section"><div class="anal-section-title">BEST PARAMS</div><div class="anal-bests">' +
+      data.bestParams.map(b => '<span class="anal-best"><span class="anal-best-label">' + b.label + '</span> <span class="anal-best-val">' + b.value + '</span> <span class="anal-best-info">WR ' + pct(b.wr) + ' (' + num(b.count) + ' pos)</span></span>').join('') +
+      '</div></div>';
   }
 
-  el.innerHTML = '<div class="section-label" style="border-top:none;padding-top:0;margin-top:0">Analysis</div>'
-    + '<div class="row"><span style="color:#aaa;white-space:normal;max-width:none">ANALISA: ' + analisa.join(' &bull; ') + '</span></div>'
-    + '<div class="row" style="margin-top:4px"><span style="color:#00ff41;white-space:normal;max-width:none">REKOMENDASI: ' + rekomendasi.join(' &bull; ') + '</span></div>';
+  // ── RECOMMENDATIONS ──
+  const usable = (data.recommendations || []).filter(r => r.metric !== 'SL' && r.metric !== 'tpPercent' && r.metric !== 'maxMcapUsd' && r.metric !== 'minMcapUsd');
+  if (usable.length) {
+    h += '<div class="anal-section"><div class="anal-section-title" style="color:#00ff41">RECOMMENDATIONS</div><div class="anal-recs">' +
+      usable.map(r => {
+        const val = r.label || (r.metric === 'trailingPercent' ? r.value + '%' : r.value);
+        const label = r.metric === 'trailingPercent' ? 'Trail' : r.metric.replace(/([A-Z])/g,' $1').replace(/^[a-z]/,c=>c.toUpperCase()).trim();
+        const cur = r.current;
+        return '<div class="anal-rec"><span class="anal-rec-label">' + label + '</span>' +
+          (cur ? '<span class="anal-rec-val" style="color:#888;text-decoration:line-through">' + cur + '</span><span class="anal-rec-sep" style="color:#555;margin:0 4px">→</span>' : '') +
+          '<span class="anal-rec-val">' + val + '</span><span class="anal-rec-reason">' + r.reason + '</span></div>';
+      }).join('') +
+      '</div></div>';
+  }
+
+  el.innerHTML = '<div style="text-align:center;padding:0 0 6px 0">' + analysisButtons + '</div>' + label + h;
 }
 
 function fetchAnalysis() {
+  const el = document.getElementById('analysisWrap');
+  el.innerHTML = '<div class="section-label" style="border-top:none;padding-top:0;margin-top:0">Analysis</div><div class="loading" style="padding:10px">Analyzing...</div>';
   fetch('/api/analysis').then(r => r.json()).then(data => {
     renderAnalysis(data);
   }).catch(err => {
-    document.getElementById('analysisWrap').innerHTML = '<div class="section-label" style="border-top:none;padding-top:0;margin-top:0">Analysis</div><div class="row"><span class="item" style="color:#888">Analysis unavailable</span></div>';
+    el.innerHTML = '<div class="section-label" style="border-top:none;padding-top:0;margin-top:0">Analysis</div><div class="row"><span class="item" style="color:#888">Analysis unavailable</span></div><div style="text-align:center;padding:6px 0">' + analysisButtons + '</div>';
+  });
+}
+
+function renderPotential(data) {
+  const el = document.getElementById('analysisWrap');
+  if (data.error || !data.totalRejected) {
+    el.innerHTML = analysisButtons + '<div style="padding:6px 0;color:#555">Potential analysis: ' + (data.error || 'No data') + '</div>';
+    return;
+  }
+
+  const label = '<div class="section-label" style="border-top:1px solid #2a2a2a">POTENTIAL</div>';
+  let h = '';
+
+  h += '<div class="anal-summary">' +
+    '<div class="anal-sum-item"><span class="anal-label">Winners</span><span class="anal-val g">' + data.winners + '</span></div>' +
+    '<div class="anal-sum-item"><span class="anal-label">Losers</span><span class="anal-val r">' + data.losers + '</span></div>' +
+    '<div class="anal-sum-item"><span class="anal-label">Rejected</span><span class="anal-val">' + data.totalRejected + '</span></div>' +
+    '<div class="anal-sum-item"><span class="anal-label">Scored</span><span class="anal-val">' + data.totalScored + '</span></div>' +
+    '</div>';
+
+  // Distribution
+  const dist = data.distribution;
+  const total = dist.high + dist.medium + dist.low || 1;
+  h += '<div class="anal-section"><div class="anal-section-title">SCORE DISTRIBUTION</div>' +
+    '<div style="display:flex;gap:4px;padding:4px 0;font-size:11px">' +
+    '<span style="flex:' + dist.high + ';background:#00ff4133;text-align:center;padding:2px">High ' + Math.round(dist.high/total*100) + '%</span>' +
+    '<span style="flex:' + dist.medium + ';background:#ffd70033;text-align:center;padding:2px">Med ' + Math.round(dist.medium/total*100) + '%</span>' +
+    '<span style="flex:' + dist.low + ';background:#ff413633;text-align:center;padding:2px">Low ' + Math.round(dist.low/total*100) + '%</span>' +
+    '</div></div>';
+
+  // Winner profile ranges
+  h += '<div class="anal-section"><div class="anal-section-title">WINNER PROFILE</div><table style="width:100%;font-size:11px;border-collapse:collapse">' +
+    '<tr style="color:#888"><th style="text-align:left;padding:2px 4px">Metric</th><th style="padding:2px 4px">Winner</th><th style="padding:2px 4px">Loser</th></tr>';
+  const fmt = {
+    top10Pct: v => v.toFixed(1) + '%',
+    liquidityUsd: v => v >= 1000 ? '$'+(v/1000).toFixed(0)+'K' : '$'+v.toFixed(0),
+    holderCount: v => v + '',
+    volume: v => v >= 1000 ? '$'+(v/1000).toFixed(0)+'K' : '$'+v.toFixed(0),
+    swaps: v => v.toLocaleString(),
+  };
+  const labels = { top10Pct: 'Top10%', liquidityUsd: 'Liq', holderCount: 'Holders', volume: 'Volume', swaps: 'Swaps' };
+  for (const [key, r] of Object.entries(data.winnerRanges)) {
+    h += '<tr><td style="padding:2px 4px">' + (labels[key] || key) + '</td>' +
+      '<td style="text-align:center;color:#00ff41">' + fmt[key](r.winnerMin) + ' – ' + fmt[key](r.winnerMax) + '</td>' +
+      '<td style="text-align:center;color:#ff4136">' + fmt[key](r.loserMin) + ' – ' + fmt[key](r.loserMax) + '</td></tr>';
+  }
+  h += '</table></div>';
+
+  // Top potential candidates
+  if (data.topPotential && data.topPotential.length) {
+    h += '<div class="anal-section"><div class="anal-section-title">TOP POTENTIAL CANDIDATES (rejected)</div>';
+    data.topPotential.slice(0, 10).forEach((c, i) => {
+      const pctCls = c.pct >= 50 ? 'g' : c.pct >= 30 ? '' : 'r';
+      h += '<div style="padding:3px 0;font-size:11px;border-bottom:1px solid #1a1a1a">' +
+        '<span style="color:#888">#' + (i+1) + '</span> score ' + c.score + '/' + c.maxScore +
+        ' <span class="' + pctCls + '">(' + c.pct + '%)</span>' +
+        ' <span style="color:#555">' + c.details.map(d => (labels[d.key] || d.key) + '=' + fmt[d.key](d.val)).join(' ') + '</span>' +
+        ' <span style="color:#888">rejected: ' + c.filters.join('; ') + '</span>' +
+        '</div>';
+    });
+    h += '</div>';
+  }
+
+  // Worst filters
+  if (data.worstFilters && data.worstFilters.length) {
+    h += '<div class="anal-section"><div class="anal-section-title" style="color:#ff4136">STRICTEST FILTERS</div>';
+    const maxScore = data.worstFilters[0].totalScore;
+    data.worstFilters.forEach(f => {
+      const bar = Math.round(f.totalScore / maxScore * 100);
+      h += '<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:11px">' +
+        '<span style="width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + f.filter + '</span>' +
+        '<div style="flex:1;height:12px;background:#1a1a1a;border-radius:2px"><div style="width:' + bar + '%;height:100%;background:#ff4136;border-radius:2px"></div></div>' +
+        '<span style="color:#888;width:40px;text-align:right">' + f.totalScore + '</span>' +
+        '</div>';
+    });
+    h += '</div>';
+  }
+
+  // Recommendations
+  if (data.recommendations && data.recommendations.length) {
+    h += '<div class="anal-section"><div class="anal-section-title" style="color:#00ff41">RECOMMENDATIONS — LOOSEN FILTERS</div>';
+    data.recommendations.forEach(r => {
+      const oldVal = r.filter.includes('MCAP') ? '$' + Number(r.current).toLocaleString()
+        : r.filter.includes('Fee') ? r.current + ' SOL'
+        : r.filter.includes('Holder') ? r.current + '%'
+        : r.current;
+      const newVal = r.filter.includes('MCAP') ? '$' + Number(r.suggest).toLocaleString()
+        : r.filter.includes('Fee') ? r.suggest + ' SOL'
+        : r.filter.includes('Holder') ? r.suggest + '%'
+        : r.suggest;
+      h += '<div class="anal-rec" style="font-size:11px">' +
+        '<span class="anal-rec-label">' + r.filter + '</span>' +
+        '<span class="anal-rec-val" style="color:#888;text-decoration:line-through">' + oldVal + '</span>' +
+        ' → ' +
+        '<span class="anal-rec-val" style="color:#00ff41">' + newVal + '</span>' +
+        '<span class="anal-rec-reason">' + r.candidatesLost + ' potential candidates lost</span>' +
+        '</div>';
+    });
+    h += '</div>';
+  }
+
+  el.innerHTML = '<div style="text-align:center;padding:0 0 6px 0">' + analysisButtons + '</div>' + label + h;
+}
+
+function fetchPotential() {
+  const el = document.getElementById('analysisWrap');
+  el.innerHTML = '<div class="section-label" style="border-top:1px solid #2a2a2a">POTENTIAL</div><div class="loading" style="padding:10px">Analyzing rejected candidates...</div>';
+  fetch('/api/potential-analysis').then(r => r.json()).then(data => {
+    renderPotential(data);
+  }).catch(err => {
+    el.innerHTML = '<div class="section-label" style="border-top:1px solid #2a2a2a">POTENTIAL</div><div class="row"><span class="item" style="color:#888">Unavailable</span></div><div style="text-align:center;padding:6px 0">' + analysisButtons + '</div>';
   });
 }
 
@@ -1497,7 +1594,6 @@ function fetchData(silent) {
     applyFilters(false);
     document.getElementById('loadingState').style.display = 'none';
     renderChart();
-    fetchAnalysis();
   }).catch(err => {
     if (silent) return;
     document.getElementById('loadingState').innerHTML = '<span class="error">Error: '+err.message+'</span>';
@@ -1529,8 +1625,7 @@ function renderStats() {
   const stats = computeStats(filteredPositions);
   renderSummary(stats.summary);
   renderDetails(stats.details);
-  renderExitReasons(stats.details);
-  renderTradeSummary(stats.details);
+  // merged into analysis section
 }
 function renderTable() {
   const tbody = document.getElementById('positionsBody');

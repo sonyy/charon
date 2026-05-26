@@ -5,6 +5,10 @@ export const db = new Database(DB_PATH);
 
 export function initDb() {
   db.pragma('journal_mode = WAL');
+  db.pragma('wal_autocheckpoint = 1000');
+  db.pragma('journal_size_limit = 8388608');
+  db.pragma('mmap_size = 26843545600');
+  db.pragma('busy_timeout = 15000');
   db.exec(`
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
