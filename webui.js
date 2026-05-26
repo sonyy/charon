@@ -82,7 +82,8 @@ app.get('/api/positions', (req, res) => {
     const rows = db.prepare(`
       SELECT id, candidate_id, mint, symbol, status, opened_at_ms, closed_at_ms,
              size_sol, entry_price, entry_mcap, exit_price, exit_mcap, exit_reason,
-             pnl_percent, pnl_sol, tp_percent, sl_percent, trailing_percent, strategy_id, execution_mode
+             pnl_percent, pnl_sol, tp_percent, sl_percent, trailing_percent, strategy_id, execution_mode,
+             current_pnl_sol, current_pnl_percent, max_pnl_sol, min_pnl_sol
       FROM dry_run_positions
       WHERE (? = '' OR status = ?)
         AND (? = '' OR strategy_id = ?)
@@ -110,6 +111,11 @@ app.get('/api/positions/:id/trades', (req, res) => {
       return res.status(400).json({ error: 'Invalid position ID' });
     }
 
+    const posPnl = db.prepare(`
+      SELECT current_pnl_sol, current_pnl_percent, max_pnl_sol, min_pnl_sol
+      FROM dry_run_positions WHERE id = ?
+    `).get(id) || {};
+
     const trades = db.prepare(`
       SELECT id, side, at_ms, price, mcap, size_sol, reason, payload_json
       FROM dry_run_trades WHERE position_id = ?
@@ -129,6 +135,10 @@ app.get('/api/positions/:id/trades', (req, res) => {
         reason: t.reason,
         pnlPercent: pnlInfo.pnlPercent ?? null,
         pnlSol: pnlInfo.pnlSol ?? null,
+        currentPnlSol: posPnl.current_pnl_sol ?? null,
+        currentPnlPercent: posPnl.current_pnl_percent ?? null,
+        maxPnlSol: posPnl.max_pnl_sol ?? null,
+        minPnlSol: posPnl.min_pnl_sol ?? null,
       };
     });
 

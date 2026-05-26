@@ -168,15 +168,24 @@ export async function refreshPosition(position, { autoExit = true, jupiterPnl = 
     else if (trailingHit) exitReason = 'TRAILING_TP';
   }
 
+  // Track current PnL and max/min unrealized PnL
+  const curMaxPnl = position.max_pnl_sol != null ? position.max_pnl_sol : -Infinity;
+  const curMinPnl = position.min_pnl_sol != null ? position.min_pnl_sol : Infinity;
+  const newMaxPnl = curMaxPnl === -Infinity ? pnlSol : Math.max(curMaxPnl, pnlSol);
+  const newMinPnl = curMinPnl === Infinity ? pnlSol : Math.min(curMinPnl, pnlSol);
+
   // Live exits will override these with realized SOL values
   let finalPnlPercent = pnlPercent;
   let finalPnlSol = pnlSol;
 
   db.prepare(`
     UPDATE dry_run_positions
-    SET high_water_mcap = ?, high_water_price = ?, trailing_armed = ?
+    SET high_water_mcap = ?, high_water_price = ?, trailing_armed = ?,
+        current_pnl_sol = ?, current_pnl_percent = ?,
+        max_pnl_sol = ?, min_pnl_sol = ?
     WHERE id = ?
-  `).run(highWaterMcap, highWaterPrice, trailingArmed ? 1 : 0, position.id);
+  `).run(highWaterMcap, highWaterPrice, trailingArmed ? 1 : 0,
+        pnlSol, pnlPercent, newMaxPnl, newMinPnl, position.id);
 
   if (exitReason && autoExit && position.execution_mode === 'live') {
     if (sellInProgress.has(position.id)) return { ...position, exitReason: null };

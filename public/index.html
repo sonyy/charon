@@ -578,6 +578,7 @@ tbody tr:hover { background: #151515; }
 .row-profit { background: rgba(255, 255, 255, 0.02); }
 .row-loss { background: transparent; }
 
+
 .symbol-link { color: #ccc; text-decoration: none; }
 .symbol-link:hover { color: #fff; text-decoration: underline; }
 
@@ -885,17 +886,20 @@ tbody tr:hover { background: #151515; }
   <table>
     <colgroup>
       <col style="width:4%">
-      <col style="width:10%">
-      <col style="width:8%">
-      <col style="width:6%">
-      <col style="width:6%">
-      <col style="width:8%">
-      <col style="width:8%">
       <col style="width:9%">
-      <col style="width:6%">
+      <col style="width:7%">
+      <col style="width:5%">
+      <col style="width:5%">
+      <col style="width:7%">
+      <col style="width:7%">
+      <col style="width:7%">
+      <col style="width:5%">
+      <col style="width:8%">
+      <col style="width:7%">
+      <col style="width:7%">
+      <col style="width:7%">
       <col style="width:10%">
-      <col style="width:13%">
-      <col style="width:12%">
+      <col style="width:10%">
     </colgroup>
     <thead><tr>
       <th onclick="sortBy('id')"># <span class="sort" id="sort-id">▾</span></th>
@@ -907,6 +911,9 @@ tbody tr:hover { background: #151515; }
       <th onclick="sortBy('exit_price')">Exit <span class="sort" id="sort-exit_price">▾</span></th>
       <th onclick="sortBy('pnl_sol')">PnL (SOL) <span class="sort" id="sort-pnl_sol">▾</span></th>
       <th onclick="sortBy('pnl_percent')">PnL % <span class="sort" id="sort-pnl_percent">▾</span></th>
+      <th onclick="sortBy('current_pnl_sol')">u.PnL <span class="sort" id="sort-current_pnl_sol">▾</span></th>
+      <th onclick="sortBy('max_pnl_sol')">u.Max <span class="sort" id="sort-max_pnl_sol">▾</span></th>
+      <th onclick="sortBy('min_pnl_sol')">u.Min <span class="sort" id="sort-min_pnl_sol">▾</span></th>
       <th>Reason</th>
       <th onclick="sortBy('opened_at_ms')">Opened <span class="sort" id="sort-opened_at_ms">▾</span></th>
       <th onclick="sortBy('closed_at_ms')">Closed <span class="sort" id="sort-closed_at_ms">▾</span></th>
@@ -1791,11 +1798,14 @@ function renderTable() {
       '<td>'+(p.exit_price!=null?fmtPrice(p.exit_price):'-')+'</td>'+
       '<td class="'+(p.pnl_sol>0?'profit':p.pnl_sol<0?'loss':'')+'">'+(p.pnl_sol!=null?p.pnl_sol.toFixed(6):'-')+'</td>'+
       '<td class="'+(p.pnl_sol>0?'profit':p.pnl_sol<0?'loss':'')+'">'+(p.pnl_percent!=null?p.pnl_percent.toFixed(1)+'%':'-')+'</td>'+
+      '<td class="'+(p.current_pnl_sol>0?'profit':p.current_pnl_sol<0?'loss':'')+'">'+(p.current_pnl_sol!=null?p.current_pnl_sol.toFixed(6):'-')+'</td>'+
+      '<td class="'+(p.max_pnl_sol>0?'profit':'')+'">'+(p.max_pnl_sol!=null?p.max_pnl_sol.toFixed(6):'-')+'</td>'+
+      '<td class="'+(p.min_pnl_sol<0?'loss':'')+'">'+(p.min_pnl_sol!=null?p.min_pnl_sol.toFixed(6):'-')+'</td>'+
       '<td>'+esc(p.exit_reason||'-')+'</td>'+
       '<td>'+(p.opened_at?fmtDate(p.opened_at):'-')+'</td>'+
       '<td>'+(p.closed_at?fmtDate(p.closed_at):'-')+'</td>'+
     '</tr>'+
-    '<tr class="trade-detail" id="trade-row-'+p.id+'"><td colspan="12"><div class="trade-inner" id="trade-inner-'+p.id+'"><h4>Loading trades...</h4></div></td></tr>';
+    '<tr class="trade-detail" id="trade-row-'+p.id+'"><td colspan="15"><div class="trade-inner" id="trade-inner-'+p.id+'"><h4>Loading trades...</h4></div></td></tr>';
   }).join('');
   document.getElementById('rowCount').textContent = total + ' positions (page ' + currentPage + '/' + totalPages + ')';
   renderPagination(total);
