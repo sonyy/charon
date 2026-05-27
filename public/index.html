@@ -20,7 +20,7 @@ body {
   text-shadow: 0 0 0.5px rgba(255,255,255,0.15);
 }
 
-.container { max-width: 1400px; margin: 0 auto; }
+.container { max-width: 100%; margin: 0; }
 
 /* ── Terminal window chrome ── */
 .terminal-frame {
@@ -34,7 +34,7 @@ body {
   gap: 8px;
   background: #111;
   border-bottom: 1px solid #333;
-  padding: 8px 14px;
+  padding: 6px 14px;
   user-select: none;
 }
 
@@ -45,35 +45,20 @@ header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 4px 16px;
+  padding: 4px 14px;
   background: #000;
   border-bottom: 1px solid #333;
 }
 
 header .title {
   color: #fff;
-  font-size: 14px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 3px;
-}
-
-header .title span { color: #666; }
-
-header h1 {
-  font-size: 16px;
-  color: #fff;
+  font-size: 13px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 2px;
 }
 
-header h1 span { color: #666; }
-
-header h1::before {
-  content: '$ ';
-  color: #666;
-}
+header .title span { color: #666; }
 
 /* ── Swipe-to-confirm ── */
 .swipe-bar { position:relative; width:100%; height:32px; background:#1a1a1a; border:1px solid #444; cursor:pointer; overflow:hidden; user-select:none; }
@@ -423,6 +408,8 @@ header h1::before {
 .table-wrap {
   border: 1px solid #333;
   background: #0a0a0a;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* ── Detail Stats ── */
@@ -507,6 +494,26 @@ header h1::before {
 .anal-best-info { color:#555; font-size:10px; }
 .anal-dim { color:#555; font-size:10px; }
 .anal-mcaps { font-size:11px; line-height:1.6; }
+
+.btn-close {
+  background: #ff3355;
+  color: #000;
+  border: 1px solid #ff3355;
+  padding: 2px 10px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-radius: 2px;
+  line-height: 1.6;
+}
+.btn-close:hover {
+  background: #ff5577;
+  border-color: #ff5577;
+  color: #000;
+}
 .anal-mcap { white-space:nowrap; }
 .anal-recs { display:flex; flex-direction:column; gap:3px; }
 .anal-rec { display:flex; align-items:baseline; gap:6px; background:#0d1f0d; border-left:2px solid #00ff41; padding:3px 8px; border-radius:2px; font-size:11px; flex-wrap:wrap; }
@@ -517,7 +524,7 @@ header h1::before {
 
 table {
   width: 100%;
-  table-layout: fixed;
+  table-layout: auto;
   border-collapse: collapse;
   font-size: 14px;
 }
@@ -525,14 +532,14 @@ table {
 thead {
   position: sticky;
   top: 0;
-  background: #1a1a1a;
+  background: #0d0d0d;
   z-index: 2;
   border-top: 1px solid #444;
   border-bottom: 2px solid #444;
 }
 
 th {
-  padding: 6px 8px;
+  padding: 8px 10px;
   text-align: left;
   cursor: pointer;
   user-select: none;
@@ -544,7 +551,7 @@ th {
   font-weight: 700;
 }
 
-th:hover { color: #ccc; }
+th:hover { color: #fff; background: #1a1a1a; }
 
 th .sort { margin-left: 4px; opacity: 0.3; }
 th .sort.active { opacity: 1; color: #fff; }
@@ -563,20 +570,27 @@ th .sort.active { opacity: 1; color: #fff; }
 }
 
 td {
-  padding: 5px 8px;
-  border-bottom: 1px solid #1a1a1a;
+  padding: 6px 10px;
+  border-bottom: 1px solid #111;
   font-size: 13px;
-  max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-tbody tr { cursor: pointer; transition: background 0.15s; }
-tbody tr:hover { background: #151515; }
+tbody tr { cursor: pointer; transition: background 0.1s; }
+tbody tr:hover { background: #1a1a1a; }
 
-.row-profit { background: rgba(255, 255, 255, 0.02); }
-.row-loss { background: transparent; }
+tbody tr:nth-child(even) { background: rgba(255,255,255,0.015); }
+tbody tr:nth-child(even):hover { background: #1a1a1a; }
+
+.row-profit { background: rgba(0, 255, 65, 0.03); }
+.row-profit + .trade-detail { background: rgba(0, 255, 65, 0.03); }
+.row-loss { background: rgba(255, 51, 85, 0.03); }
+.row-loss + .trade-detail { background: rgba(255, 51, 85, 0.03); }
+
+.row-profit:nth-child(even) { background: rgba(0, 255, 65, 0.05); }
+.row-loss:nth-child(even) { background: rgba(255, 51, 85, 0.05); }
 
 
 .symbol-link { color: #ccc; text-decoration: none; }
@@ -678,6 +692,25 @@ tbody tr:hover { background: #151515; }
 ::-webkit-scrollbar-thumb { background: #333; }
 ::-webkit-scrollbar-thumb:hover { background: #555; }
 
+/* ── Desktop ── */
+@media (min-width: 1200px) {
+  body { padding: 0; background: #050505; }
+  .container { display: flex; flex-direction: column; min-height: 100vh; }
+  .terminal-frame { border: none; border-bottom: 1px solid #222; background: #000; }
+  .table-wrap { flex: 1; border: none; border-top: 1px solid #222; }
+  table { font-size: 13px; }
+  td { font-size: 12px; padding: 5px 10px; }
+  .cards { grid-template-columns: 2fr 0.5fr 0.5fr 0.5fr; margin: 0; border: none; border-bottom: 1px solid #222; }
+  .card { padding: 8px 12px; }
+  .card .value { font-size: 24px; }
+  .card-pnl .card-left .value { font-size: 28px; }
+  .filters { border: none; border-bottom: 1px solid #222; }
+  .chart-wrap { border: none; border-bottom: 1px solid #222; margin: 0; border-top: 1px solid #222; }
+  .details-wrap { border: none; border-bottom: 1px solid #222; margin: 0; }
+  header { padding: 3px 14px; }
+  #analysisWrap { border: none; border-bottom: 1px solid #222; }
+}
+
 /* ── Responsive ── */
 @media (max-width: 768px) {
   .cards { grid-template-columns: 1fr; }
@@ -688,7 +721,7 @@ tbody tr:hover { background: #151515; }
   .page-nav { margin-left: auto; }
   /* tablet: natural column sizing + scroll instead of fixed layout */
   .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .table-wrap table { table-layout: auto; }
+  .table-wrap table { min-width: 900px; }
 }
 
 @media (max-width: 600px) {
@@ -884,23 +917,7 @@ tbody tr:hover { background: #151515; }
 </div>
 <div class="table-wrap">
   <table>
-    <colgroup>
-      <col style="width:4%">
-      <col style="width:9%">
-      <col style="width:7%">
-      <col style="width:5%">
-      <col style="width:5%">
-      <col style="width:7%">
-      <col style="width:7%">
-      <col style="width:7%">
-      <col style="width:5%">
-      <col style="width:8%">
-      <col style="width:7%">
-      <col style="width:7%">
-      <col style="width:7%">
-      <col style="width:10%">
-      <col style="width:10%">
-    </colgroup>
+
     <thead><tr>
       <th onclick="sortBy('id')"># <span class="sort" id="sort-id">▾</span></th>
       <th onclick="sortBy('symbol')">Symbol <span class="sort" id="sort-symbol">▾</span></th>
@@ -909,8 +926,8 @@ tbody tr:hover { background: #151515; }
       <th onclick="sortBy('size_sol')">Size <span class="sort" id="sort-size_sol">▾</span></th>
       <th onclick="sortBy('entry_price')">Entry <span class="sort" id="sort-entry_price">▾</span></th>
       <th onclick="sortBy('exit_price')">Exit <span class="sort" id="sort-exit_price">▾</span></th>
-      <th onclick="sortBy('pnl_sol')">PnL (SOL) <span class="sort" id="sort-pnl_sol">▾</span></th>
-      <th onclick="sortBy('pnl_percent')">PnL % <span class="sort" id="sort-pnl_percent">▾</span></th>
+      <th onclick="sortBy('pnl_sol')">r.PnL <span class="sort" id="sort-pnl_sol">▾</span></th>
+      <th>Act</th>
       <th onclick="sortBy('current_pnl_sol')">u.PnL <span class="sort" id="sort-current_pnl_sol">▾</span></th>
       <th onclick="sortBy('max_pnl_sol')">u.Max <span class="sort" id="sort-max_pnl_sol">▾</span></th>
       <th onclick="sortBy('min_pnl_sol')">u.Min <span class="sort" id="sort-min_pnl_sol">▾</span></th>
@@ -1418,7 +1435,7 @@ const analysisButtons = '<button onclick="fetchAnalysis()" style="background:#1a
 function renderAnalysis(data) {
   const el = document.getElementById('analysisWrap');
   if (!data.total) {
-    el.innerHTML = '<div class="section-label" style="border-top:none;padding-top:0;margin-top:0">Analysis</div><div style="padding:10px;color:#555">No closed positions to analyze</div>';
+    el.innerHTML = analysisButtons + '<div class="section-label" style="border-top:none;padding-top:0;margin-top:0">Analysis</div><div style="padding:10px;color:#555">No closed positions to analyze</div>';
     return;
   }
 
@@ -1773,7 +1790,7 @@ function renderTable() {
   const tbody = document.getElementById('positionsBody');
   const positions = filteredPositions;
   if (!positions.length) {
-    tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;padding:40px;color:#888">No positions found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="15" style="text-align:center;padding:40px;color:#888">No positions found</td></tr>';
     document.getElementById('pageNav').innerHTML = '';
     document.getElementById('rowCount').textContent = '0 positions';
     return;
@@ -1796,11 +1813,11 @@ function renderTable() {
       '<td>'+(p.size_sol!=null?p.size_sol.toFixed(4):'-')+'</td>'+
       '<td>'+(p.entry_price!=null?fmtPrice(p.entry_price):'-')+'</td>'+
       '<td>'+(p.exit_price!=null?fmtPrice(p.exit_price):'-')+'</td>'+
-      '<td class="'+(p.pnl_sol>0?'profit':p.pnl_sol<0?'loss':'')+'">'+(p.pnl_sol!=null?p.pnl_sol.toFixed(6):'-')+'</td>'+
-      '<td class="'+(p.pnl_sol>0?'profit':p.pnl_sol<0?'loss':'')+'">'+(p.pnl_percent!=null?p.pnl_percent.toFixed(1)+'%':'-')+'</td>'+
-      '<td class="'+(p.current_pnl_sol>0?'profit':p.current_pnl_sol<0?'loss':'')+'">'+(p.current_pnl_sol!=null?p.current_pnl_sol.toFixed(6):'-')+'</td>'+
-      '<td class="'+(p.max_pnl_sol>0?'profit':'')+'">'+(p.max_pnl_sol!=null?p.max_pnl_sol.toFixed(6):'-')+'</td>'+
-      '<td class="'+(p.min_pnl_sol<0?'loss':'')+'">'+(p.min_pnl_sol!=null?p.min_pnl_sol.toFixed(6):'-')+'</td>'+
+      '<td class="'+(p.pnl_sol>0?'profit':p.pnl_sol<0?'loss':'')+'">'+(p.pnl_sol!=null?p.pnl_sol.toFixed(4):'-')+(p.pnl_percent!=null?' <span style="font-size:11px">'+p.pnl_percent.toFixed(1)+'%</span>':'')+'</td>'+
+      '<td>'+(p.status==='open'?'<button class="btn-close" onclick="event.stopPropagation();closePosition('+p.id+')">Close</button>':'')+'</td>'+
+      '<td class="'+(p.current_pnl_sol>0?'profit':p.current_pnl_sol<0?'loss':'')+'">'+(p.current_pnl_sol!=null?p.current_pnl_sol.toFixed(4)+(p.current_pnl_percent!=null?' <span style="font-size:11px">'+p.current_pnl_percent.toFixed(2)+'%</span>':''):'-')+'</td>'+
+      '<td class="'+(p.max_pnl_sol>0?'profit':'')+'">'+(p.max_pnl_sol!=null?p.max_pnl_sol.toFixed(4)+(p.size_sol>0?' <span style="font-size:11px">'+((p.max_pnl_sol/p.size_sol)*100).toFixed(2)+'%</span>':''):'-')+'</td>'+
+      '<td class="'+(p.min_pnl_sol<0?'loss':'')+'">'+(p.min_pnl_sol!=null?p.min_pnl_sol.toFixed(4)+(p.size_sol>0?' <span style="font-size:11px">'+((p.min_pnl_sol/p.size_sol)*100).toFixed(2)+'%</span>':''):'-')+'</td>'+
       '<td>'+esc(p.exit_reason||'-')+'</td>'+
       '<td>'+(p.opened_at?fmtDate(p.opened_at):'-')+'</td>'+
       '<td>'+(p.closed_at?fmtDate(p.closed_at):'-')+'</td>'+
@@ -1925,6 +1942,21 @@ function fmtDuration(ms) {
   const h = Math.floor(ms/3600000);
   const m = Math.floor((ms%3600000)/60000);
   return h>0 ? h+'h '+m+'m' : m+'m';
+}
+function closePosition(id) {
+  if (!confirm('Close trade #' + id + '?')) return;
+  const btn = event?.target;
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  fetch('/api/positions/' + id + '/close', { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) { alert('Failed: ' + data.error); if (btn) { btn.disabled = false; btn.textContent = 'Close'; } return; }
+      fetchData();
+    })
+    .catch(err => {
+      alert('Error: ' + err.message);
+      if (btn) { btn.disabled = false; btn.textContent = 'Close'; }
+    });
 }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 fetchData();

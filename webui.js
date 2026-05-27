@@ -3,6 +3,11 @@ import Database from 'better-sqlite3';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import fs from 'fs';
+import axios from 'axios';
+import { initLiveExecution, executeJupiterSwap } from './src/liveExecutor.js';
+import { WSOL_MINT } from './src/config.js';
+
+function now() { return Date.now(); }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3000);
@@ -16,10 +21,16 @@ let db;
 function openDb(readonly = true) {
   if (db) { try { db.close(); } catch {} }
   db = new Database(dbPath, { readonly });
+  db.pragma('busy_timeout = 15000');
+  db.pragma('cache_size = -24000');
+  db.pragma('temp_store = MEMORY');
   if (!readonly) {
     db.pragma('journal_mode = WAL');
     db.pragma('synchronous = NORMAL');
+    db.pragma('journal_size_limit = 8388608');
+    db.pragma('wal_autocheckpoint = 1000');
   }
+  db.pragma('mmap_size = 26843545600');
 }
 openDb(true);
 
@@ -35,6 +46,16 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json());
+
+// Auto-recover: if DB was closed by error, reopen on next request
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/')) {
+    try { db.prepare('SELECT 1').get(); } catch {
+      try { openDb(true); } catch {}
+    }
+  }
+  next();
+});
 
 app.get('/api/summary', (req, res) => {
   try {
@@ -774,26 +795,131 @@ app.post('/api/apply-recommendations', (req, res) => {
   }
 });
 
+// ── Close a position (manual sell) ──
+app.post('/api/positions/:id/close', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid position ID' });
+
+    const position = db.prepare(`
+      SELECT id, mint, status, execution_mode, size_sol, entry_mcap, entry_price,
+             token_amount_raw, token_amount_est,
+             current_pnl_sol, current_pnl_percent
+      FROM dry_run_positions WHERE id = ?
+    `).get(id);
+    if (!position) return res.status(404).json({ error: 'Position not found' });
+    if (position.status === 'closed') return res.status(400).json({ error: 'Position already closed' });
+
+    if (position.execution_mode === 'live') {
+      if (!position.token_amount_raw && !position.token_amount_est) {
+        return res.status(400).json({ error: 'No token amount to sell' });
+      }
+      try {
+        const amount = position.token_amount_raw || position.token_amount_est;
+        const result = await executeJupiterSwap({
+          inputMint: position.mint,
+          outputMint: WSOL_MINT,
+          amount,
+        });
+        const outputSol = Number(result.outputAmount) / 1e9;
+        const sizeSol = Number(position.size_sol);
+        let pnlSol = outputSol - sizeSol;
+        let pnlPercent = sizeSol > 0 ? (outputSol / sizeSol - 1) * 100 : 0;
+        let exitPrice = sizeSol > 0 ? (position.entry_price * outputSol / sizeSol) : position.entry_price;
+        let exitMcap = null;
+        openDb(false);
+        try {
+          db.prepare(`
+            UPDATE dry_run_positions
+            SET status = 'closed', closed_at_ms = ?, exit_price = ?, exit_mcap = ?,
+                exit_reason = 'MANUAL', pnl_percent = ?, pnl_sol = ?
+            WHERE id = ?
+          `).run(now(), exitPrice, exitMcap, pnlPercent, pnlSol, position.id);
+          db.prepare(`
+            INSERT INTO dry_run_trades (position_id, mint, side, at_ms, price, mcap, size_sol, token_amount_est, reason, payload_json)
+            VALUES (?, ?, 'sell', ?, ?, ?, ?, ?, 'MANUAL', ?)
+            `).run(position.id, position.mint, now(), exitPrice, exitMcap,
+            sizeSol, position.token_amount_raw || position.token_amount_est,
+            JSON.stringify({ pnlPercent, pnlSol, outputSol, sizeSol, signature: result.signature, closedAt: new Date().toISOString() }));
+        } finally {
+          openDb(true);
+        }
+        return res.json({ success: true, id, pnlPercent, pnlSol, signature: result.signature });
+      } catch (err) {
+        console.error(`Live close swap failed:`, err);
+        return res.status(500).json({ error: `Swap failed: ${err.message}` });
+      }
+    }
+
+    let price = position.entry_price;
+    let mcap = position.entry_mcap;
+    let pnlPercent = position.current_pnl_percent ?? 0;
+    let pnlSol = position.current_pnl_sol ?? 0;
+    try {
+      const url = new URL('https://datapi.jup.ag/v1/assets/search');
+      url.searchParams.set('query', position.mint);
+      const jres = await axios.get(url.toString(), { timeout: 10_000 });
+      const rows = Array.isArray(jres.data) ? jres.data : [];
+      const asset = rows.find(row => row?.id === position.mint) || rows[0] || null;
+      if (asset) {
+        const p = Number(asset.usdPrice);
+        const m = Number(asset.mcap ?? asset.fdv);
+        if (p > 0) price = p;
+        if (m > 0) mcap = m;
+        if (m > 0 && Number(position.entry_mcap) > 0) {
+          pnlPercent = (m / Number(position.entry_mcap) - 1) * 100;
+          pnlSol = Number(position.size_sol) * pnlPercent / 100;
+        }
+      }
+    } catch (err) {
+      console.error(`Close trade asset fetch failed: ${err.message}`);
+    }
+
+    openDb(false);
+    try {
+      db.prepare(`
+        UPDATE dry_run_positions
+        SET status = 'closed', closed_at_ms = ?, exit_price = ?, exit_mcap = ?,
+            exit_reason = 'MANUAL', pnl_percent = ?, pnl_sol = ?
+        WHERE id = ?
+      `).run(now(), price, mcap, pnlPercent, pnlSol, position.id);
+
+      db.prepare(`
+        INSERT INTO dry_run_trades (position_id, mint, side, at_ms, price, mcap, size_sol, token_amount_est, reason, payload_json)
+        VALUES (?, ?, 'sell', ?, ?, ?, ?, ?, 'MANUAL', ?)
+      `).run(position.id, position.mint, now(), price, mcap,
+        Number(position.size_sol), position.token_amount_est || position.token_amount_raw || null,
+        JSON.stringify({ pnlPercent, pnlSol, closedAt: new Date().toISOString() }));
+    } finally {
+      openDb(true);
+    }
+
+    res.json({ success: true, id, pnlPercent, pnlSol });
+  } catch (err) {
+    console.error('Close trade error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Health check — responds immediately even if DB is busy
+app.get('/api/health', (req, res) => {
+  res.json({ ok: true, uptime: process.uptime() });
+});
+
+initLiveExecution();
+
 const server = app.listen(PORT, '0.0.0.0', () => {
-  // Apply tuning pragmas after listen so site is reachable immediately
-  try {
-    db.pragma('busy_timeout = 15000');
-    db.pragma('cache_size = -24000');
-    db.pragma('temp_store = MEMORY');
-    db.pragma('journal_size_limit = 8388608');
-    db.pragma('wal_autocheckpoint = 1000');
-    db.pragma('mmap_size = 26843545600');
-  } catch (_) {}
   console.log(`Charon Trade Viewer running at http://0.0.0.0:${PORT}`);
 });
 
-// Keepalive: prevent OS page cache eviction
-const KEEPALIVE_MS = 30_000;
+// Keepalive: prevent OS page cache eviction + keep WAL trimmed
+const KEEPALIVE_MS = 15_000;
 const keepaliveTimer = setInterval(() => {
   try {
     db.prepare('SELECT 1').get();
+    db.pragma('wal_checkpoint(PASSIVE)');
   } catch (err) {
     console.error('Keepalive error:', err);
   }
@@ -809,3 +935,14 @@ function shutdown() {
 }
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+
+// Prevent crash on uncaught errors — log and keep serving
+process.on('uncaughtException', err => {
+  console.error('UNCAUGHT EXCEPTION:', err);
+  try { db.pragma('wal_checkpoint(TRUNCATE)'); } catch(e) {}
+  try { db.close(); } catch(e) {}
+  server.close(() => process.exit(1));
+});
+process.on('unhandledRejection', (reason, p) => {
+  console.error('UNHANDLED REJECTION:', reason);
+});

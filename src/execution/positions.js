@@ -122,16 +122,27 @@ export async function refreshPosition(position, { autoExit = true, jupiterPnl = 
     pnlPercent = Number(jupiterPnl.totalPnlPercentageNative);
     pnlSol = Number.isFinite(Number(jupiterPnl.totalPnlNative)) ? Number(jupiterPnl.totalPnlNative) : pnlSol;
   }
+  const strat = strategyById(position.strategy_id);
   const tpHit = pnlPercent >= Number(position.tp_percent);
   const slHit = Number(position.sl_percent) < 0 && pnlPercent <= Number(position.sl_percent);
-  const trailingArmed = position.trailing_armed || (position.trailing_enabled && tpHit);
+  const trailingActivatePct = Number(strat?.trailing_activate_percent ?? position.trailing_percent ?? 15);
+  const peakPnlPct = Number(highWaterMcap) > 0 && Number(position.entry_mcap) > 0
+    ? (Number(highWaterMcap) / Number(position.entry_mcap) - 1) * 100
+    : pnlPercent;
+  const trailingArmed = position.trailing_armed || (position.trailing_enabled && (tpHit || pnlPercent >= trailingActivatePct || peakPnlPct >= trailingActivatePct));
   const trailDrop = highWaterMcap > 0 ? (Number(mcap) / highWaterMcap - 1) * 100 : 0;
   const trailingHit = trailingArmed && position.trailing_enabled && trailDrop <= -Math.abs(Number(position.trailing_percent));
+
+  if (trailingArmed && !position.trailing_armed) {
+    console.log(`[trailing] ${position.id} armed activatePct=${trailingActivatePct} pnl=${pnlPercent.toFixed(1)}% peakPnl=${peakPnlPct.toFixed(1)}%`);
+  }
+  if (trailingHit) {
+    console.log(`[trailing] ${position.id} HIT trailDrop=${trailDrop.toFixed(1)}% trailPct=${position.trailing_percent}%`);
+  }
   let exitReason = null;
   let closed = false;
 
   // Max hold time check
-  const strat = strategyById(position.strategy_id);
   if (strat?.max_hold_ms > 0 && (now() - position.opened_at_ms) >= strat.max_hold_ms) {
     exitReason = 'MAX_HOLD';
   }
