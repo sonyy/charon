@@ -101,6 +101,7 @@ export const strategyNumericLabels = {
   tp_percent: 'take profit percent',
   sl_percent: 'stop loss percent',
   trailing_percent: 'trailing percent',
+  trailing_activate_percent: 'trailing activate percent',
   partial_tp_at_percent: 'partial TP trigger percent',
   partial_tp_sell_percent: 'partial TP sell percent',
   max_hold_ms: 'maximum hold milliseconds',
@@ -142,7 +143,7 @@ export function agentText() {
     `Candidate freshness: ${Math.round(numSetting('llm_candidate_max_age_ms', 600000) / 1000)}s`,
     `Size: ${fmtSol(strat.position_size_sol)} SOL`,
     `TP/SL: ${fmtPct(strat.tp_percent)} / ${fmtPct(strat.sl_percent)}`,
-    `Trailing: ${strat.trailing_enabled ? fmtPct(strat.trailing_percent) : 'off'}`,
+    `Trailing: ${strat.trailing_enabled ? fmtPct(strat.trailing_percent) : 'off'}${strat.trailing_activate_percent != null ? ` (activate ${fmtPct(strat.trailing_activate_percent)})` : ''}`,
   ].join('\n');
 }
 
@@ -218,7 +219,7 @@ export function strategyMenuText() {
     `Fee required: ${strat.require_fee_claim ? 'yes' : 'no'}`,
     `Size: ${fmtSol(strat.position_size_sol)} SOL`,
     `TP/SL: ${fmtPct(strat.tp_percent)} / ${fmtPct(strat.sl_percent)}`,
-    `Trailing: ${strat.trailing_enabled ? fmtPct(strat.trailing_percent) : 'off'}`,
+    `Trailing: ${strat.trailing_enabled ? fmtPct(strat.trailing_percent) : 'off'}${strat.trailing_activate_percent != null ? ` (activate ${fmtPct(strat.trailing_activate_percent)})` : ''}`,
     `Max positions: ${strat.max_open_positions}`,
     strat.min_holders > 0 ? `Min holders: ${strat.min_holders}` : null,
     strat.max_ath_distance_pct < 0 ? `Max ATH distance: ${strat.max_ath_distance_pct}%` : null,
@@ -252,6 +253,7 @@ export function strategyKeyboard() {
     ],
     [
       { text: `Trail ${strat.trailing_enabled ? fmtPct(strat.trailing_percent) : 'off'}`, callback_data: 'stratinput:trailing_percent' },
+      { text: `Tr.Act ${strat.trailing_activate_percent != null ? fmtPct(strat.trailing_activate_percent) : 'same'}`, callback_data: 'stratinput:trailing_activate_percent' },
       { text: `Min Src ${strat.min_source_count}`, callback_data: 'stratinput:min_source_count' },
     ],
     [

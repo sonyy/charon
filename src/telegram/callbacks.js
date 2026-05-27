@@ -177,6 +177,7 @@ const STRAT_PRESETS = {
   min_mcap_usd: [0, 5000, 10000, 25000, 50000, 100000],
   max_mcap_usd: [0, 50000, 100000, 200000, 500000, 1000000],
   trailing_percent: [10, 15, 20, 25, 30],
+  trailing_activate_percent: [0, 5, 10, 15, 20, 25, 30],
   min_source_count: [1, 2, 3, 4],
   min_holders: [0, 100, 500, 1000, 2000, 5000],
   llm_min_confidence: [0, 30, 50, 60, 70, 80, 90],
