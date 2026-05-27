@@ -729,7 +729,6 @@ app.get('/api/potential-analysis', (req, res) => {
 });
 
 // ── Apply recommendations ──
-const PASSWORD = 'GyvdhH66g3%5b';
 
 const recMap = {
   // Potential section (filter field)
@@ -754,10 +753,7 @@ const recMap = {
 
 app.post('/api/apply-recommendations', (req, res) => {
   try {
-    const { password, recommendations } = req.body || {};
-    if (password !== PASSWORD) {
-      return res.status(401).json({ error: 'Wrong password' });
-    }
+    const { recommendations } = req.body || {};
     if (!Array.isArray(recommendations) || !recommendations.length) {
       return res.status(400).json({ error: 'No recommendations to apply' });
     }
@@ -792,6 +788,18 @@ app.post('/api/apply-recommendations', (req, res) => {
     res.json({ success: true, applied, config });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Verify page password ──
+const PAGE_PASSWORD = 'GyvdhH66g3%5b';
+
+app.post('/api/verify-password', (req, res) => {
+  const { password } = req.body || {};
+  if (password === PAGE_PASSWORD) {
+    res.json({ success: true });
+  } else {
+    res.status(401).json({ error: 'Wrong password' });
   }
 });
 

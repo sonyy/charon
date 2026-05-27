@@ -829,9 +829,47 @@ tbody tr:nth-child(even):hover { background: #1a1a1a; }
   .trade-inner th,
   .trade-inner td { padding: 5px 6px; font-size: 12px; white-space: nowrap; }
 }
+
+/* ── Login overlay ── */
+#loginOverlay {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: #000; display: flex; align-items: center; justify-content: center;
+  z-index: 9999; flex-direction: column;
+}
+#loginOverlay.hidden { display: none; }
+.login-box {
+  background: #0a0a0a; border: 1px solid #333; padding: 32px 40px;
+  text-align: center; max-width: 360px; width: 90%;
+}
+.login-title { font-size: 18px; letter-spacing: 3px; text-transform: uppercase; color: #fff; margin-bottom: 4px; }
+.login-title span { color: #666; }
+.login-sub { font-size: 12px; color: #666; margin-bottom: 20px; }
+.login-box input {
+  width: 100%; padding: 10px; background: #111; border: 1px solid #333;
+  color: #e0e0e0; font-family: inherit; font-size: 14px; text-align: center;
+  outline: none; margin-bottom: 12px; box-sizing: border-box;
+}
+.login-box input:focus { border-color: #555; }
+.login-box button {
+  width: 100%; padding: 10px; background: #1a1a1a; border: 1px solid #444;
+  color: #c0c0c0; font-family: inherit; font-size: 13px; text-transform: uppercase;
+  letter-spacing: 2px; cursor: pointer;
+}
+.login-box button:hover { background: #222; border-color: #888; color: #fff; }
+#loginError { color: #ff4444; font-size: 12px; margin-top: 10px; min-height: 18px; }
+
 </style>
 </head>
 <body>
+<div id="loginOverlay">
+  <div class="login-box">
+    <div class="login-title">CHARON <span>v1.0</span></div>
+    <div class="login-sub">Enter password to access terminal</div>
+    <input type="password" id="loginPassword" placeholder="Password" autofocus>
+    <button id="loginBtn" onclick="verifyPassword()">Unlock</button>
+    <div id="loginError"></div>
+  </div>
+</div>
 <div class="container">
 <div class="terminal-frame">
 <header>
@@ -1330,6 +1368,7 @@ function renderDetails(d) {
     const tOrder = set.trending_order_by || '-';
     const top20Holder = strat?.config?.max_top20_holder_percent;
     const top10Holder = strat?.config?.max_top10_holder_percent;
+    const minTop10 = strat?.config?.min_top10_holder_percent;
     const minLiq = strat?.config?.min_liquidity_usd;
     const minFeeClaim = strat?.config?.min_fee_claim_sol;
     const reqFeeClaim = strat?.config?.require_fee_claim;
@@ -1351,6 +1390,7 @@ function renderDetails(d) {
       + '<span class="item">Holders: <strong>' + minHolders + '</strong></span>'
       + '<span class="item">Max Top20: <strong>' + (top20Holder != null && top20Holder < 100 ? top20Holder + '%' : 'off') + '</strong></span>'
       + '<span class="item">Max Top10: <strong>' + (top10Holder != null && top10Holder < 100 ? top10Holder + '%' : 'off') + '</strong></span>'
+      + '<span class="item">Min Top10: <strong>' + (minTop10 > 0 ? minTop10 + '%' : 'off') + '</strong></span>'
       + '<span class="item">Min Liq: <strong>' + (minLiq > 0 ? '$' + (minLiq >= 1000 ? (minLiq / 1000).toFixed(0) + 'K' : minLiq.toFixed(0)) : 'off') + '</strong></span>'
       + '<span class="item">Max Age: <strong>' + tAge + '</strong></span>'
       + '<span class="item">ATH Dist: <strong>' + (athDist !== '-' && Number(athDist) < 0 ? athDist + '%' : athDist == 0 ? '0%' : athDist) + '</strong></span>'
@@ -1695,20 +1735,12 @@ function initSwipe(id, onDone) {
 }
 
 function sendRecs(recs) {
-  let password = sessionStorage.getItem('opencode_pass');
-  if (!password) {
-    password = prompt('Enter password to apply recommendations:');
-    if (!password) return;
-    sessionStorage.setItem('opencode_pass', password);
-  }
-
   fetch('/api/apply-recommendations', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password, recommendations: recs }),
+    body: JSON.stringify({ recommendations: recs }),
   }).then(r => r.json()).then(data => {
     if (data.error) {
-      if (data.error === 'Wrong password') sessionStorage.removeItem('opencode_pass');
       alert('Failed: ' + data.error);
     } else {
       alert('Applied ' + data.applied.length + ' recommendations:\n' + data.applied.join('\n'));
@@ -1959,7 +1991,34 @@ function closePosition(id) {
     });
 }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-fetchData();
+
+// ── Page password auth ──
+function verifyPassword() {
+  const pwd = document.getElementById('loginPassword').value;
+  document.getElementById('loginError').textContent = '';
+  fetch('/api/verify-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: pwd })
+  }).then(r => {
+    if (!r.ok) throw new Error('Wrong password');
+    sessionStorage.setItem('charon_auth', '1');
+    document.getElementById('loginOverlay').classList.add('hidden');
+    fetchData();
+  }).catch(() => {
+    document.getElementById('loginError').textContent = 'Wrong password';
+    document.getElementById('loginPassword').value = '';
+    document.getElementById('loginPassword').focus();
+  });
+}
+document.getElementById('loginPassword').addEventListener('keydown', e => {
+  if (e.key === 'Enter') verifyPassword();
+});
+
+if (sessionStorage.getItem('charon_auth')) {
+  document.getElementById('loginOverlay').classList.add('hidden');
+  fetchData();
+}
 </script>
 </body>
 </html>
