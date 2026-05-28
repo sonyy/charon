@@ -1463,6 +1463,8 @@ function renderDetails(d) {
       + '<span class="item">Min Swaps: <strong>' + (tMinSwaps > 0 ? tMinSwaps : 'off') + '</strong></span>'
       + (tRug !== '-' ? '<span class="item">Rug: <strong>' + tRug + '</strong></span>' : '')
       + (tBundle !== '-' ? '<span class="item">Bundle: <strong>' + tBundle + '</strong></span>' : '')
+      + '<span class="item">Cooldown: <strong>' + (set.redeploy_cooldown_min || '30') + '</strong> min</span>'
+      + '<span class="item">OrgScore: <strong>' + (set.min_organic_score || '40') + '</strong></span>'
       + (minGraduatedVol > 0 ? '<span class="item">Grad.Vol: <strong>$' + minGraduatedVol + '</strong></span>' : '')
       + (minSavedWallets > 0 ? '<span class="item">SavedWal: <strong>' + minSavedWallets + '</strong></span>' : '')
       + '<span class="item">Trend: <strong>' + tInterval + '</strong> · ' + tOrder + '</span>'
