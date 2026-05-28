@@ -1,5 +1,5 @@
 import { now, firstPositiveNumber, marketCapFromGmgn, tokenPriceFromGmgn, lamToSol } from '../utils.js';
-import { activeStrategy } from '../db/settings.js';
+import { activeStrategy, numSetting } from '../db/settings.js';
 import { fetchGmgnTokenInfo } from '../enrichment/gmgn.js';
 import { fetchJupiterAsset, fetchJupiterHolders, fetchJupiterChartContext } from '../enrichment/jupiter.js';
 import { fetchSavedWalletExposure } from '../enrichment/wallets.js';
@@ -43,6 +43,12 @@ export function filterCandidate(candidate) {
   const trendingSwaps = Number(candidate.trending?.swaps ?? 0);
   const rugRatio = Number(candidate.trending?.rug_ratio ?? 0);
   const bundlerRate = Number(candidate.trending?.bundler_rate ?? 0);
+  const organicScore = Number(candidate.trending?.hot_level ?? candidate.metrics.trendingHotLevel ?? 0);
+
+  const minOrganic = numSetting('min_organic_score', 0);
+  if (minOrganic > 0 && organicScore > 0 && organicScore < minOrganic) {
+    failures.push(`organic score: ${organicScore} < ${minOrganic}`);
+  }
 
   // Fee claim check
   if (candidate.feeClaim) {
@@ -127,6 +133,22 @@ export function filterCandidate(candidate) {
     if (candidate.trending.is_wash_trading === true || candidate.trending.is_wash_trading === 1) {
       failures.push('trending wash trading');
     }
+  }
+
+  // Near-threshold warnings
+  const warnThreshold = 0.10;
+  const near = [];
+  if (strat.trending_max_rug_ratio > 0 && rugRatio >= strat.trending_max_rug_ratio * (1 - warnThreshold) && rugRatio <= strat.trending_max_rug_ratio) {
+    near.push(`rug_ratio ${rugRatio.toFixed(2)} near max ${strat.trending_max_rug_ratio}`);
+  }
+  if (strat.trending_max_bundler_rate > 0 && bundlerRate >= strat.trending_max_bundler_rate * (1 - warnThreshold) && bundlerRate <= strat.trending_max_bundler_rate) {
+    near.push(`bundler_rate ${(bundlerRate * 100).toFixed(1)}% near max ${(strat.trending_max_bundler_rate * 100).toFixed(1)}%`);
+  }
+  if (strat.max_top10_holder_percent < 100 && Number.isFinite(top10Pct) && top10Pct >= strat.max_top10_holder_percent * (1 - warnThreshold) && top10Pct <= strat.max_top10_holder_percent) {
+    near.push(`top10 ${top10Pct.toFixed(1)}% near max ${strat.max_top10_holder_percent}%`);
+  }
+  if (near.length) {
+    console.log(`[filter] ${candidate.token?.symbol || candidate.token?.mint?.slice(0,6) || '?'} near-threshold: ${near.join('; ')}`);
   }
 
   return { passed: failures.length === 0, failures, strategy: strat.id };

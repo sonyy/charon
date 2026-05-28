@@ -130,6 +130,8 @@ export async function handleMessage(msg) {
       'trending_min_swaps',
       'trending_max_rug_ratio',
       'trending_max_bundler_rate',
+      'redeploy_cooldown_min',
+      'min_organic_score',
       'trading_mode',
       'llm_min_confidence',
       'llm_candidate_pick_count',

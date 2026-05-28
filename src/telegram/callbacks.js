@@ -252,6 +252,8 @@ async function updateSettingFromButton(query, key, value) {
     'trending_min_swaps',
     'trending_max_rug_ratio',
     'trending_max_bundler_rate',
+    'redeploy_cooldown_min',
+    'min_organic_score',
     'filtered_coin_alerts',
     'trading_mode',
     'llm_min_confidence',

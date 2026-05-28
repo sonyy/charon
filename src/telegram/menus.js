@@ -53,6 +53,7 @@ export function filtersText() {
     `Trending interval: ${escapeHtml(setting('trending_interval', '5m'))} · Limit: ${numSetting('trending_limit', 100)}`,
     `Min trend volume: ${fmtUsd(strat.trending_min_volume_usd)} · Min swaps: ${strat.trending_min_swaps}`,
     `Max trend rug: ${fmtPct(strat.trending_max_rug_ratio * 100)} · Max bundler: ${fmtPct(strat.trending_max_bundler_rate * 100)}`,
+    `Redeploy cooldown: ${numSetting('redeploy_cooldown_min', 30)}m (recommended: 30) · Min organic score: ${numSetting('min_organic_score', 40)} (recommended: 40)`,
     '',
     `Filter alerts: <b>${boolSetting('filtered_coin_alerts', true) ? 'on' : 'off'}</b>`,
   ].filter(Boolean).join('\n');
@@ -74,6 +75,8 @@ export const numericFilterLabels = {
   trending_min_swaps: 'minimum trending swaps',
   trending_max_rug_ratio: 'maximum trending rug ratio (0.3 = 30%)',
   trending_max_bundler_rate: 'maximum trending bundler rate (0.5 = 50%)',
+  redeploy_cooldown_min: 'redeploy cooldown minutes (0-1440, 0 = off)',
+  min_organic_score: 'minimum organic/hot score (0-100, 0 = off)',
 };
 
 export const strategyNumericLabels = {
@@ -122,6 +125,10 @@ export function filtersKeyboard() {
           { text: 'Trend 5m', callback_data: 'set:trending_interval:5m' },
           { text: 'Trend 1h', callback_data: 'set:trending_interval:1h' },
           { text: 'Trend 6h', callback_data: 'set:trending_interval:6h' },
+        ],
+        [
+          { text: `Cooldown c:${numSetting('redeploy_cooldown_min', 30)} r:30`, callback_data: 'input:redeploy_cooldown_min' },
+          { text: `OrgScore c:${numSetting('min_organic_score', 40)} r:40`, callback_data: 'input:min_organic_score' },
         ],
         [{ text: 'Back', callback_data: 'menu:main' }],
       ],

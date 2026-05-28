@@ -26,6 +26,20 @@ export function allPositions(limit = 10) {
   return db.prepare('SELECT * FROM dry_run_positions ORDER BY id DESC LIMIT ?').all(limit);
 }
 
+function redeployCooldownActive(mint) {
+  const cooldownMin = numSetting('redeploy_cooldown_min', 60);
+  if (cooldownMin <= 0) return null;
+  const last = db.prepare(`
+    SELECT id, closed_at_ms, pnl_sol, exit_reason FROM dry_run_positions
+    WHERE mint = ? AND status = 'closed' AND closed_at_ms IS NOT NULL
+    ORDER BY closed_at_ms DESC LIMIT 1
+  `).get(mint);
+  if (!last) return null;
+  const elapsed = Date.now() - last.closed_at_ms;
+  if (elapsed < cooldownMin * 60 * 1000) return last;
+  return null;
+}
+
 export function createDryRunPosition(candidateId, candidate, decision, reason = 'llm_buy') {
   const strat = activeStrategy();
   const sizeSol = strat.position_size_sol ?? numSetting('dry_run_buy_sol', 0.1);
@@ -41,6 +55,14 @@ export function createDryRunPosition(candidateId, candidate, decision, reason = 
       SELECT id FROM dry_run_positions WHERE mint = ? AND status = 'open' LIMIT 1
     `).get(candidate.token.mint);
     if (existing) return existing.id;
+
+    const lastClose = redeployCooldownActive(candidate.token.mint);
+    if (lastClose) {
+      const elapsedMin = Math.round((Date.now() - lastClose.closed_at_ms) / 60000);
+      const cooldownMin = numSetting('redeploy_cooldown_min', 60);
+      console.log(`[cooldown] ${candidate.token.symbol || candidate.token.mint.slice(0,6)} re-entry blocked — closed ${elapsedMin}m ago (need ${cooldownMin}m) lastPnl=${lastClose.pnl_sol != null ? lastClose.pnl_sol.toFixed(4) : '?'} exit=${lastClose.exit_reason || '?'}`);
+      return null;
+    }
 
     const result = db.prepare(`
       INSERT INTO dry_run_positions (
@@ -95,6 +117,14 @@ export function createLivePosition(candidateId, candidate, decision, swap, reaso
       SELECT id FROM dry_run_positions WHERE mint = ? AND status = 'open' LIMIT 1
     `).get(candidate.token.mint);
     if (existing) return existing.id;
+
+    const lastClose = redeployCooldownActive(candidate.token.mint);
+    if (lastClose) {
+      const elapsedMin = Math.round((Date.now() - lastClose.closed_at_ms) / 60000);
+      const cooldownMin = numSetting('redeploy_cooldown_min', 60);
+      console.log(`[cooldown] ${candidate.token.symbol || candidate.token.mint.slice(0,6)} LIVE re-entry blocked — closed ${elapsedMin}m ago (need ${cooldownMin}m) lastPnl=${lastClose.pnl_sol != null ? lastClose.pnl_sol.toFixed(4) : '?'} exit=${lastClose.exit_reason || '?'}`);
+      return null;
+    }
 
     const result = db.prepare(`
       INSERT INTO dry_run_positions (

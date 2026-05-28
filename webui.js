@@ -243,55 +243,6 @@ app.post('/api/trades/delete-range', (req, res) => {
   }
 });
 
-// Delete trades by ID batch - deletes trades for dry run positions only
-app.post('/api/trades/delete-batch', (req, res) => {
-  try {
-    const { ids } = req.body;
-    if (!Array.isArray(ids) || ids.length === 0) {
-      return res.status(400).json({ error: 'ids must be a non-empty array' });
-    }
-    for (const id of ids) {
-      if (typeof id !== 'number' || !isFinite(id) || id < 1) {
-        return res.status(400).json({ error: `Invalid ID: ${id}` });
-      }
-    }
-    const placeholders = ids.map(() => '?').join(',');
-    const trades = db.prepare(`
-      SELECT t.id, t.side, t.at_ms, t.price, t.mcap, t.size_sol, t.reason, t.payload_json
-      FROM dry_run_trades t
-      JOIN dry_run_positions p ON t.position_id = p.id
-      WHERE t.id IN (${placeholders})
-        AND p.execution_mode = 'dry_run'
-      ORDER BY t.id ASC
-    `).all(...ids);
-    const result = db.prepare(`
-      DELETE FROM dry_run_trades
-      WHERE id IN (${placeholders})
-        AND position_id IN (SELECT id FROM dry_run_positions WHERE execution_mode = 'dry_run')
-    `).run(...ids);
-    const formatted = trades.map(t => {
-      let pnlInfo = {};
-      try { pnlInfo = JSON.parse(t.payload_json || '{}'); } catch {}
-      return {
-        id: t.id, side: t.side,
-        at: t.at_ms ? new Date(t.at_ms).toISOString() : null,
-        price: t.price, mcap: t.mcap, size_sol: t.size_sol,
-        reason: t.reason,
-        pnlPercent: pnlInfo.pnlPercent ?? null,
-        pnlSol: pnlInfo.pnlSol ?? null,
-      };
-    });
-    res.json({
-      message: `Successfully deleted ${result.changes} trade(s)`,
-      deletedCount: result.changes,
-      trades: formatted
-    });
-  } catch (err) {
-    console.error('Delete trades by batch error:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
 app.get('/api/settings', (req, res) => {
   try {
     const settingsRows = db.prepare("SELECT key, value FROM settings").all();

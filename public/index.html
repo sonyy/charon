@@ -2003,13 +2003,8 @@ function toggleTrades(id) {
        fetch('/api/positions/'+id+'/trades').then(r=>r.json()).then(trades => {
           const inner = document.getElementById('trade-inner-'+id);
           if (!trades.length) { inner.innerHTML = '<h4>No trades</h4>'; tradeCache[id] = inner.innerHTML; return; }
-          inner.innerHTML = '<h4>Trades</h4><div style="margin-bottom:8px;display:flex;align-items:center;gap:8px;">' +
-            '<input type="checkbox" id="selAllTr_'+id+'" onchange="qsa(\'.trade-cb-'+id+'\').forEach(function(c){c.checked=this.checked},this)" checked style="margin:0">' +
-            '<label for="selAllTr_'+id+'" style="font-size:10px;color:#666;cursor:pointer;">All</label>' +
-            '<button onclick="deleteSelectedTrades('+id+')" style="background:#ff3355;color:#000;border:1px solid #ff3355;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;border-radius:2px;line-height:1.6;">Delete Selected</button>' +
-            '<span style="font-size:10px;color:#555;" id="selCount_'+id+'">('+trades.length+' selected)</span></div>' +
-            '<table><thead><tr><th style="width:26px"></th><th>#</th><th>Side</th><th>Time</th><th>Price</th><th>MCAP</th><th>Size</th><th>Reason</th></tr></thead><tbody>'+
-            trades.map(t=>'<tr><td><input type="checkbox" class="trade-cb-'+id+'" data-id="'+t.id+'" checked onchange="updateSelCount('+id+')"></td><td>'+t.id+'</td><td class="'+t.side+'">'+t.side.toUpperCase()+'</td><td>'+(t.at?fmtDateFull(t.at):'-')+'</td><td>'+(t.price!=null?fmtPrice(t.price):'-')+'</td><td>'+(t.mcap!=null?fmtUsd(t.mcap):'-')+'</td><td>'+(t.size_sol!=null?t.size_sol.toFixed(4):'-')+'</td><td>'+(t.reason||'-')+(t.pnlPercent!=null?' ('+t.pnlPercent.toFixed(1)+'%)':'')+'</td></tr>').join('')+
+          inner.innerHTML = '<h4>Trades</h4><table><thead><tr><th>#</th><th>Side</th><th>Time</th><th>Price</th><th>MCAP</th><th>Size</th><th>Reason</th></tr></thead><tbody>'+
+            trades.map(t=>'<tr><td>'+t.id+'</td><td class="'+t.side+'">'+t.side.toUpperCase()+'</td><td>'+(t.at?fmtDateFull(t.at):'-')+'</td><td>'+(t.price!=null?fmtPrice(t.price):'-')+'</td><td>'+(t.mcap!=null?fmtUsd(t.mcap):'-')+'</td><td>'+(t.size_sol!=null?t.size_sol.toFixed(4):'-')+'</td><td>'+(t.reason||'-')+(t.pnlPercent!=null?' ('+t.pnlPercent.toFixed(1)+'%)':'')+'</td></tr>').join('')+
             '</tbody></table>';
         tradeCache[id] = inner.innerHTML;
       }).catch(()=>{const err = '<h4>Error loading trades</h4>'; document.getElementById('trade-inner-'+id).innerHTML = err; tradeCache[id] = err;});
@@ -2136,56 +2131,6 @@ function deleteTradesFromFilters() {
     setTimeout(() => { resultEl.textContent = ''; resultEl.style.color = '#555'; }, 3000);
   })
   .catch(e => { resultEl.textContent = 'err'; resultEl.style.color = '#ff3355'; console.error(e); });
-}
-function qsa(s) { return document.querySelectorAll(s); }
-function updateSelCount(pid) {
-  var el = document.getElementById('selCount_' + pid);
-  if (!el) return;
-  var total = qsa('.trade-cb-' + pid + ':checked').length;
-  el.textContent = '(' + total + ' selected)';
-}
-function deleteSelectedTrades(positionId) {
-  var cbs = qsa('.trade-cb-' + positionId + ':checked');
-  var ids = Array.from(cbs).map(function(cb) { return parseInt(cb.getAttribute('data-id')); });
-  if (!ids.length) { alert('No trades selected'); return; }
-  if (!confirm('Delete ' + ids.length + ' trade(s) for this position? This cannot be undone.')) return;
-  var btn = event.target;
-  btn.disabled = true;
-  btn.textContent = 'Deleting...';
-  fetch('/api/trades/delete-batch', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ids: ids })
-  })
-  .then(function(r) {
-    if (!r.ok) return r.json().then(function(d) { throw new Error(d.error || 'Delete failed'); });
-    tradeCache[positionId] = null;
-    return fetch('/api/positions/' + positionId + '/trades').then(function(r2) { return r2.json(); });
-  })
-  .then(function(trades) {
-    var inner = document.getElementById('trade-inner-' + positionId);
-    if (!trades || !trades.length) {
-      inner.innerHTML = '<h4>No trades</h4>';
-      tradeCache[positionId] = inner.innerHTML;
-      return;
-    }
-    inner.innerHTML = '<h4>Trades</h4><div style="margin-bottom:8px;display:flex;align-items:center;gap:8px;">' +
-      '<input type="checkbox" id="selAllTr_' + positionId + '" onchange="qsa(\'.trade-cb-' + positionId + '\').forEach(function(c){c.checked=this.checked},this)" checked style="margin:0">' +
-      '<label for="selAllTr_' + positionId + '" style="font-size:10px;color:#666;cursor:pointer;">All</label>' +
-      '<button onclick="deleteSelectedTrades(' + positionId + ')" style="background:#ff3355;color:#000;border:1px solid #ff3355;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;border-radius:2px;line-height:1.6;">Delete Selected</button>' +
-      '<span style="font-size:10px;color:#555;" id="selCount_' + positionId + '">(' + trades.length + ' selected)</span></div>' +
-      '<table><thead><tr><th style="width:26px"></th><th>#</th><th>Side</th><th>Time</th><th>Price</th><th>MCAP</th><th>Size</th><th>Reason</th></tr></thead><tbody>' +
-      trades.map(function(t) {
-        return '<tr><td><input type="checkbox" class="trade-cb-' + positionId + '" data-id="' + t.id + '" checked onchange="updateSelCount(' + positionId + ')"></td><td>' + t.id + '</td><td class="' + t.side + '">' + t.side.toUpperCase() + '</td><td>' + (t.at ? fmtDateFull(t.at) : '-') + '</td><td>' + (t.price != null ? fmtPrice(t.price) : '-') + '</td><td>' + (t.mcap != null ? fmtUsd(t.mcap) : '-') + '</td><td>' + (t.size_sol != null ? t.size_sol.toFixed(4) : '-') + '</td><td>' + (t.reason || '-') + (t.pnlPercent != null ? ' (' + t.pnlPercent.toFixed(1) + '%)' : '') + '</td></tr>';
-      }).join('') +
-      '</tbody></table>';
-    tradeCache[positionId] = inner.innerHTML;
-  })
-  .catch(function(err) {
-    alert('Error: ' + err.message);
-    btn.disabled = false;
-    btn.textContent = 'Delete Selected';
-  });
 }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
