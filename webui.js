@@ -18,21 +18,19 @@ if (!fs.existsSync(dbPath)) {
   process.exit(1);
 }
 let db;
-function openDb(readonly = true) {
+function openDb() {
   if (db) { try { db.close(); } catch {} }
-  db = new Database(dbPath, { readonly });
+  db = new Database(dbPath, { readonly: false });
+  db.pragma('journal_mode = WAL');
+  db.pragma('synchronous = NORMAL');
+  db.pragma('journal_size_limit = 8388608');
+  db.pragma('wal_autocheckpoint = 1000');
   db.pragma('busy_timeout = 15000');
   db.pragma('cache_size = -24000');
   db.pragma('temp_store = MEMORY');
-  if (!readonly) {
-    db.pragma('journal_mode = WAL');
-    db.pragma('synchronous = NORMAL');
-    db.pragma('journal_size_limit = 8388608');
-    db.pragma('wal_autocheckpoint = 1000');
-  }
   db.pragma('mmap_size = 26843545600');
 }
-openDb(true);
+openDb();
 
 const app = express();
 
@@ -51,7 +49,7 @@ app.use(express.json());
 app.use((req, res, next) => {
   if (req.path.startsWith('/api/')) {
     try { db.prepare('SELECT 1').get(); } catch {
-      try { openDb(true); } catch {}
+      try { openDb(); } catch {}
     }
   }
   next();
@@ -59,6 +57,10 @@ app.use((req, res, next) => {
 
 app.get('/api/summary', (req, res) => {
   try {
+    const mode = req.query.mode || '';
+    const modeClause = mode ? "AND execution_mode = ?" : "";
+    const modeParams = mode ? [mode] : [];
+
     const closed = db.prepare(`
       SELECT
         COUNT(*) as closedCount,
@@ -67,14 +69,14 @@ app.get('/api/summary', (req, res) => {
         COALESCE(SUM(size_sol), 0) as totalSizeSol,
         SUM(CASE WHEN pnl_sol > 0 THEN 1 ELSE 0 END) as wins,
         SUM(CASE WHEN pnl_sol < 0 THEN 1 ELSE 0 END) as losses
-      FROM dry_run_positions WHERE status = 'closed'
-    `).get();
+      FROM dry_run_positions WHERE status = 'closed' ${modeClause}
+    `).get(...modeParams);
 
-    const open = db.prepare("SELECT COUNT(*) as c FROM dry_run_positions WHERE status = 'open'").get();
-    const total = db.prepare("SELECT COUNT(*) as c FROM dry_run_positions").get();
+    const open = db.prepare(`SELECT COUNT(*) as c FROM dry_run_positions WHERE status = 'open' ${modeClause}`).get(...modeParams);
+    const total = db.prepare(`SELECT COUNT(*) as c FROM dry_run_positions ${modeClause ? 'WHERE ' + modeClause.replace('AND ', '') : ''}`).get(...modeParams);
 
-    const best = db.prepare("SELECT symbol, pnl_sol FROM dry_run_positions WHERE status = 'closed' AND pnl_sol IS NOT NULL ORDER BY pnl_sol DESC LIMIT 1").get();
-    const worst = db.prepare("SELECT symbol, pnl_sol FROM dry_run_positions WHERE status = 'closed' AND pnl_sol IS NOT NULL ORDER BY pnl_sol ASC LIMIT 1").get();
+    const best = db.prepare(`SELECT symbol, pnl_sol FROM dry_run_positions WHERE status = 'closed' AND pnl_sol IS NOT NULL ${modeClause} ORDER BY pnl_sol DESC LIMIT 1`).get(...modeParams);
+    const worst = db.prepare(`SELECT symbol, pnl_sol FROM dry_run_positions WHERE status = 'closed' AND pnl_sol IS NOT NULL ${modeClause} ORDER BY pnl_sol ASC LIMIT 1`).get(...modeParams);
 
     const winRate = closed.closedCount > 0 ? Number(((closed.wins / closed.closedCount) * 100).toFixed(1)) : 0;
 
@@ -90,6 +92,7 @@ app.get('/api/summary', (req, res) => {
       winRate,
       bestTrade: best || null,
       worstTrade: worst || null,
+      mode: mode || 'all',
     });
   } catch (err) {
     console.error('Summary error:', err);
@@ -170,6 +173,125 @@ app.get('/api/positions/:id/trades', (req, res) => {
   }
 });
 
+// Delete trades by ID range endpoint - deletes trades for dry run positions only within ID range
+app.post('/api/trades/delete-range', (req, res) => {
+  try {
+    const { startId, endId } = req.body;
+    
+    // Validate input
+    if (typeof startId !== 'number' || !isFinite(startId) || 
+        typeof endId !== 'number' || !isFinite(endId)) {
+      return res.status(400).json({ error: 'Invalid startId or endId. Both must be finite numbers.' });
+    }
+    
+    const start = Math.floor(startId);
+    const end = Math.floor(endId);
+    
+    if (start > end) {
+      return res.status(400).json({ error: 'startId must be less than or equal to endId' });
+    }
+    
+    if (start < 1) {
+      return res.status(400).json({ error: 'startId must be >= 1' });
+    }
+    
+    // First get the trades to return them before deletion (only for dry run positions)
+    const trades = db.prepare(`
+      SELECT t.id, t.side, t.at_ms, t.price, t.mcap, t.size_sol, t.reason, t.payload_json
+      FROM dry_run_trades t
+      JOIN dry_run_positions p ON t.position_id = p.id
+      WHERE t.id BETWEEN ? AND ?
+        AND p.execution_mode = 'dry_run'
+      ORDER BY t.id ASC
+    `).all(start, end);
+
+    const formatted = trades.map(t => {
+      let pnlInfo = {};
+      try { pnlInfo = JSON.parse(t.payload_json || '{}'); } catch {}
+      return {
+        id: t.id,
+        side: t.side,
+        at: t.at_ms ? new Date(t.at_ms).toISOString() : null,
+        price: t.price,
+        mcap: t.mcap,
+        size_sol: t.size_sol,
+        reason: t.reason,
+        pnlPercent: pnlInfo.pnlPercent ?? null,
+        pnlSol: pnlInfo.pnlSol ?? null,
+      };
+    });
+
+    // Actually delete the trades
+    const result = db.prepare(`
+      DELETE FROM dry_run_trades 
+      WHERE id BETWEEN ? AND ?
+        AND position_id IN (
+          SELECT id FROM dry_run_positions WHERE execution_mode = 'dry_run'
+        )
+    `).run(start, end);
+
+    res.json({
+      message: `Successfully deleted ${result.changes} trade(s) with IDs from ${start} to ${end} (dry run positions only)`,
+      deletedCount: result.changes,
+      startId: start,
+      endId: end,
+      trades: formatted
+    });
+  } catch (err) {
+    console.error('Delete trades by range error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete trades by ID batch - deletes trades for dry run positions only
+app.post('/api/trades/delete-batch', (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'ids must be a non-empty array' });
+    }
+    for (const id of ids) {
+      if (typeof id !== 'number' || !isFinite(id) || id < 1) {
+        return res.status(400).json({ error: `Invalid ID: ${id}` });
+      }
+    }
+    const placeholders = ids.map(() => '?').join(',');
+    const trades = db.prepare(`
+      SELECT t.id, t.side, t.at_ms, t.price, t.mcap, t.size_sol, t.reason, t.payload_json
+      FROM dry_run_trades t
+      JOIN dry_run_positions p ON t.position_id = p.id
+      WHERE t.id IN (${placeholders})
+        AND p.execution_mode = 'dry_run'
+      ORDER BY t.id ASC
+    `).all(...ids);
+    const result = db.prepare(`
+      DELETE FROM dry_run_trades
+      WHERE id IN (${placeholders})
+        AND position_id IN (SELECT id FROM dry_run_positions WHERE execution_mode = 'dry_run')
+    `).run(...ids);
+    const formatted = trades.map(t => {
+      let pnlInfo = {};
+      try { pnlInfo = JSON.parse(t.payload_json || '{}'); } catch {}
+      return {
+        id: t.id, side: t.side,
+        at: t.at_ms ? new Date(t.at_ms).toISOString() : null,
+        price: t.price, mcap: t.mcap, size_sol: t.size_sol,
+        reason: t.reason,
+        pnlPercent: pnlInfo.pnlPercent ?? null,
+        pnlSol: pnlInfo.pnlSol ?? null,
+      };
+    });
+    res.json({
+      message: `Successfully deleted ${result.changes} trade(s)`,
+      deletedCount: result.changes,
+      trades: formatted
+    });
+  } catch (err) {
+    console.error('Delete trades by batch error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/settings', (req, res) => {
   try {
     const settingsRows = db.prepare("SELECT key, value FROM settings").all();
@@ -216,15 +338,19 @@ function pickBestBucketByPnl(buckets, minCount = 2) {
 
 app.get('/api/analysis', (req, res) => {
   try {
+    const mode = req.query.mode || '';
+    const modeClause = mode ? "AND p.execution_mode = ?" : "";
+    const modeParams = mode ? [mode] : [];
+
     const rows = db.prepare(`
       SELECT p.pnl_sol, p.exit_reason, p.entry_mcap, p.size_sol, p.sl_percent, p.tp_percent, p.trailing_percent, p.opened_at_ms, p.closed_at_ms,
              c.candidate_json
       FROM dry_run_positions p
       LEFT JOIN candidates c ON p.candidate_id = c.id
-      WHERE p.status = 'closed' AND c.candidate_json IS NOT NULL
+      WHERE p.status = 'closed' AND c.candidate_json IS NOT NULL ${modeClause}
       ORDER BY p.opened_at_ms DESC
       LIMIT 2000
-    `).all();
+    `).all(...modeParams);
 
     const fmt = (v) => v != null && Number.isFinite(v) ? Number(v) : null;
 
@@ -514,15 +640,203 @@ app.get('/api/strategies', (req, res) => {
 
 app.get('/api/potential-analysis', (req, res) => {
   try {
-    // ── 1. Get closed trades to build winner profile ──
+    const mode = req.query.mode || '';
+    // ── Helpers ──
+    function smartScoreCandidate(metrics, holders, signals, trending) {
+      const top10 = holders.holders
+        ? holders.holders.slice(0, 10).reduce((s, hh) => s + (hh.percent || 0), 0)
+        : null;
+      const hCount = holders.count || Number(metrics.holderCount) || 0;
+      const liq = Number(metrics.liquidityUsd) || 0;
+      const mcap = Number(metrics.marketCapUsd) || 0;
+      const vol = Number(metrics.trendingVolumeUsd) || 0;
+      const swaps = Number(metrics.trendingSwaps) || 0;
+      const routeSig = (signals.route || '').split('_').filter(Boolean).length;
+      const maxHolder = holders.maxHolderPercent;
+      const rug = trending?.rug_ratio;
+      const bundle = trending?.bundler_rate;
+
+      // Holder quality (0-25): hCount + top10 balance
+      let holderScore = 0;
+      if (hCount >= 500) holderScore = 25;
+      else if (hCount >= 200) holderScore = 20;
+      else if (hCount >= 100) holderScore = 15;
+      else if (hCount >= 50) holderScore = 10;
+      else if (hCount >= 20) holderScore = 5;
+      // Penalty if top10 is too extreme
+      if (top10 != null) {
+        if (top10 > 80) holderScore = Math.max(0, holderScore - 10);
+        else if (top10 > 60) holderScore = Math.max(0, holderScore - 5);
+        else if (top10 >= 20 && top10 <= 50) holderScore = Math.min(25, holderScore + 3);
+      }
+      // Penalty if one whale dominates
+      if (maxHolder != null && maxHolder > 30) holderScore = Math.max(0, holderScore - 8);
+
+      // Volume quality (0-25): organic activity estimation
+      let volScore = 0;
+      if (vol > 0 && swaps > 0) {
+        const avgTrade = vol / swaps;
+        if (avgTrade < 50) volScore = 25;       // many small trades = organic
+        else if (avgTrade < 200) volScore = 20;
+        else if (avgTrade < 1000) volScore = 12;
+        else volScore = 5;                       // whale trades
+        // Volume magnitude bonus
+        if (vol >= 50000) volScore = Math.min(25, volScore + 5);
+        else if (vol >= 10000) volScore = Math.min(25, volScore + 3);
+      } else if (vol > 0) {
+        volScore = 8; // volume but no swaps data
+      }
+
+      // Liquidity safety (0-20): liq / mcap ratio
+      let liqScore = 0;
+      if (liq > 0 && mcap > 0) {
+        const ratio = liq / mcap;
+        if (ratio >= 0.3) liqScore = 20;
+        else if (ratio >= 0.15) liqScore = 15;
+        else if (ratio >= 0.05) liqScore = 10;
+        else if (ratio >= 0.02) liqScore = 5;
+      } else if (liq > 10000) {
+        liqScore = 8; // absolute liquidity floor
+      }
+
+      // Signal diversity (0-15): more sources = higher confidence
+      const sigScore = Math.min(15, routeSig * 8);
+
+      // Rug safety (0-15): low rug ratio + low bundler rate
+      let rugScore = 10;
+      if (rug != null) {
+        if (rug <= 0.1) rugScore += 5;
+        else if (rug <= 0.3) rugScore += 2;
+        else if (rug > 0.5) rugScore -= 5;
+      }
+      if (bundle != null) {
+        if (bundle <= 0.1) rugScore += 3;
+        else if (bundle <= 0.3) rugScore += 1;
+        else if (bundle > 0.5) rugScore -= 3;
+      }
+      rugScore = Math.max(0, Math.min(15, rugScore));
+
+      const total = holderScore + volScore + liqScore + sigScore + rugScore;
+
+      return {
+        score: total,
+        maxScore: 100,
+        pct: Math.round(total),
+        details: {
+          holderScore: { val: holderScore, desc: hCount + ' holder' + (top10 != null ? ', Top10=' + top10.toFixed(1) + '%' : '') },
+          volScore: { val: volScore, desc: (vol >= 1000 ? '$' + (vol/1000).toFixed(0) + 'K' : '$' + vol.toFixed(0)) + ' vol / ' + (swaps || 0) + ' swap' },
+          liqScore: { val: liqScore, desc: (liq >= 1000 ? '$' + (liq/1000).toFixed(0) + 'K' : '$' + liq.toFixed(0)) + ' likuiditas' + (mcap > 0 ? ' / MCAP $' + (mcap/1000).toFixed(0) + 'K' : '') },
+          sigScore: { val: sigScore, desc: routeSig + ' sumber sinyal' },
+          rugScore: { val: rugScore, desc: 'Rug=' + (rug != null ? rug.toFixed(2) : '?') + ' Bundle=' + (bundle != null ? bundle.toFixed(2) : '?') },
+        },
+      };
+    }
+
+    function savedWalletScoreCandidate(swe) {
+      const count = swe?.holderCount ?? 0;
+      const checked = swe?.checked ?? 0;
+      let score = 0;
+      if (count >= 5) score = 100;
+      else if (count >= 3) score = 80;
+      else if (count >= 2) score = 60;
+      else if (count >= 1) score = 40;
+      // Bonus for high ratio of saved holders to checked
+      if (checked > 0 && count > 0) {
+        const ratio = count / checked;
+        if (ratio > 0.5) score = Math.min(100, score + 15);
+        else if (ratio > 0.2) score = Math.min(100, score + 5);
+      }
+      return {
+        score,
+        maxScore: 100,
+        pct: score,
+        count,
+        checked,
+      };
+    }
+
+    // ── 1. Fetch all filtered candidates ──
+    const filteredRows = db.prepare(`
+      SELECT c.candidate_json, c.filter_result_json
+      FROM candidates c
+      WHERE c.status = 'filtered' AND c.candidate_json IS NOT NULL
+      ORDER BY c.created_at_ms DESC
+    `).all();
+
+    const totalFiltered = filteredRows.length;
+    const smartScored = [];
+    const savedWalletScored = [];
+    const parsedCandidates = [];
+
+    for (const r of filteredRows) {
+      try {
+        const cj = JSON.parse(r.candidate_json);
+        const fr = JSON.parse(r.filter_result_json);
+        const metrics = cj.metrics || {};
+        const holders = cj.holders || {};
+        const signals = cj.signals || {};
+        const trending = cj.trending || null;
+        const swe = cj.savedWalletExposure || {};
+
+        const sm = smartScoreCandidate(metrics, holders, signals, trending);
+        const sw = savedWalletScoreCandidate(swe);
+
+        smartScored.push({
+          score: sm.score,
+          maxScore: 100,
+          pct: sm.pct,
+          details: sm.details,
+          filters: fr.failures || [],
+        });
+
+        savedWalletScored.push({
+          score: sw.score,
+          maxScore: 100,
+          pct: sw.pct,
+          count: sw.count,
+          checked: sw.checked,
+          filters: fr.failures || [],
+        });
+
+        parsedCandidates.push({
+          cj, fr, metrics, holders, signals, trending, swe,
+        });
+      } catch (_) {}
+    }
+
+    smartScored.sort((a, b) => b.score - a.score);
+    savedWalletScored.sort((a, b) => b.score - a.score);
+
+    const topSmart = smartScored.slice(0, 15).map(s => ({
+      score: s.score,
+      maxScore: 100,
+      pct: s.pct,
+      details: s.details,
+      filters: s.filters,
+    }));
+
+    const topSaved = savedWalletScored.filter(s => s.score > 0).slice(0, 15).map(s => ({
+      score: s.score,
+      maxScore: 100,
+      pct: s.pct,
+      count: s.count,
+      checked: s.checked,
+      filters: s.filters,
+    }));
+
+    const swCountWithOverlap = savedWalletScored.filter(s => s.score > 0).length;
+
+    // ── 2. Trade-based scoring (if data available) ──
+    const tradeClause = mode ? "AND p.execution_mode = ?" : "";
+    const tradeParams = mode ? [mode] : [];
     const tradeRows = db.prepare(`
       SELECT p.pnl_sol, p.entry_mcap, c.candidate_json
       FROM dry_run_positions p
       LEFT JOIN candidates c ON p.candidate_id = c.id
-      WHERE p.status = 'closed' AND c.candidate_json IS NOT NULL
-    `).all();
+      WHERE p.status = 'closed' AND c.candidate_json IS NOT NULL ${tradeClause}
+    `).all(...tradeParams);
 
-    const fmt = v => v != null && Number.isFinite(v) ? Number(v) : null;
+    const fmtNum = v => v != null && Number.isFinite(v) ? Number(v) : null;
 
     function extractMetrics(cj) {
       const m = cj.metrics || {};
@@ -540,7 +854,7 @@ app.get('/api/potential-analysis', (req, res) => {
     const winners = [];
     const losers = [];
     for (const r of tradeRows) {
-      const pnl = fmt(r.pnl_sol);
+      const pnl = fmtNum(r.pnl_sol);
       if (pnl == null) continue;
       try {
         const cj = JSON.parse(r.candidate_json);
@@ -549,40 +863,30 @@ app.get('/api/potential-analysis', (req, res) => {
       } catch (_) {}
     }
 
-    if (!winners.length || !losers.length) {
-      return res.json({ error: 'Need both winners and losers to compare', winners: 0, losers: 0 });
-    }
+    let tradeBasedAvailable = false;
+    let bounds = [], winnerRanges = {}, tradeScored = [], byScore = {}, worstFilters = [], topPotential = [], recommendations = [], loosenRecs = [];
 
-    // ── 2. Compute winner metric bounds (min/max) ──
-    const bounds = ['top10Pct', 'liquidityUsd', 'holderCount', 'volume', 'swaps'].map(key => {
-      const wVals = winners.map(w => w[key]);
-      const lVals = losers.map(l => l[key]);
-      return {
-        key,
-        winnerMin: Math.min(...wVals),
-        winnerMax: Math.max(...wVals),
-        loserMin: Math.min(...lVals),
-        loserMax: Math.max(...lVals),
-        higherIsBetter: ['liquidityUsd', 'holderCount', 'volume', 'swaps'].includes(key),
-      };
-    });
+    if (winners.length && losers.length) {
+      tradeBasedAvailable = true;
 
-    // ── 3. Score rejected candidates ──
-    const filteredRows = db.prepare(`
-      SELECT c.candidate_json, c.filter_result_json
-      FROM candidates c
-      WHERE c.status = 'filtered' AND c.candidate_json IS NOT NULL
-    `).all();
+      bounds = ['top10Pct', 'liquidityUsd', 'holderCount', 'volume', 'swaps'].map(key => {
+        const wVals = winners.map(w => w[key]);
+        const lVals = losers.map(l => l[key]);
+        return {
+          key,
+          winnerMin: Math.min(...wVals),
+          winnerMax: Math.max(...wVals),
+          loserMin: Math.min(...lVals),
+          loserMax: Math.max(...lVals),
+          higherIsBetter: ['liquidityUsd', 'holderCount', 'volume', 'swaps'].includes(key),
+        };
+      });
 
-    const scored = [];
-    const filterHitByScore = {};
+      const filterHitByScore = {};
 
-    for (const r of filteredRows) {
-      try {
-        const cj = JSON.parse(r.candidate_json);
-        const metrics = extractMetrics(cj);
-        const fr = JSON.parse(r.filter_result_json);
-        const failures = fr.failures || [];
+      for (const pc of parsedCandidates) {
+        const metrics = extractMetrics(pc.cj);
+        const failures = pc.fr.failures || [];
 
         let score = 0;
         const details = [];
@@ -602,119 +906,163 @@ app.get('/api/potential-analysis', (req, res) => {
         }
 
         if (score > 0) {
-          scored.push({ score, details, failures });
+          tradeScored.push({ score, details, failures });
           for (const f of failures) {
             const norm = f.replace(/:.*/, '').trim();
             filterHitByScore[norm] = (filterHitByScore[norm] || 0) + score;
           }
         }
-      } catch (_) {}
-    }
-
-    scored.sort((a, b) => b.score - a.score);
-
-    // ── 4. Response ──
-    const totalFiltered = filteredRows.length;
-    const topPotential = scored.slice(0, 20).map(s => ({
-      score: s.score,
-      maxScore: bounds.length * 2,
-      pct: Math.round(s.score / (bounds.length * 2) * 100),
-      details: s.details,
-      filters: s.failures,
-    }));
-
-    const byScore = { high: 0, medium: 0, low: 0 };
-    scored.forEach(s => {
-      const pct = s.score / (bounds.length * 2);
-      if (pct >= 0.5) byScore.high++;
-      else if (pct >= 0.3) byScore.medium++;
-      else byScore.low++;
-    });
-
-    const worstFilters = Object.entries(filterHitByScore)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10);
-
-    const winnerRanges = {};
-    for (const b of bounds) {
-      winnerRanges[b.key] = { winnerMin: b.winnerMin, winnerMax: b.winnerMax, loserMin: b.loserMin, loserMax: b.loserMax };
-    }
-
-    // ── 5. Build recommendations ──
-    const activeStrategy = db.prepare("SELECT config_json FROM strategies WHERE enabled = 1 LIMIT 1").get();
-    const config = activeStrategy ? JSON.parse(activeStrategy.config_json) : {};
-
-    // Map filter names to config keys and recommended new values
-    const filterMap = [
-      { name: 'top holder', configKey: 'max_top20_holder_percent', configVal: config.max_top20_holder_percent, isMax: true, desc: 'Max Top20' },
-      { name: 'market cap min', configKey: 'min_mcap_usd', configVal: config.min_mcap_usd, isMax: false, desc: 'Min MCAP' },
-      { name: 'market cap max', configKey: 'max_mcap_usd', configVal: config.max_mcap_usd, isMax: true, desc: 'Max MCAP' },
-      { name: 'trending volume', configKey: 'trending_min_volume_usd', configVal: config.trending_min_volume_usd, isMax: false, desc: 'Min Vol' },
-      { name: 'trending swaps', configKey: 'trending_min_swaps', configVal: config.trending_min_swaps, isMax: false, desc: 'Min Swaps' },
-      { name: 'liquidity', configKey: 'min_liquidity_usd', configVal: config.min_liquidity_usd, isMax: false, desc: 'Min Liq' },
-      { name: 'holders', configKey: 'min_holders', configVal: config.min_holders, isMax: false, desc: 'Min Holders' },
-      { name: 'fee claim', configKey: 'min_fee_claim_sol', configVal: config.min_fee_claim_sol, isMax: false, desc: 'Fee Claim' },
-    ];
-
-    const recommendations = [];
-    for (const fm of filterMap) {
-      const hitData = worstFilters.find(w => w[0].toLowerCase().includes(fm.name));
-      if (!hitData) continue;
-      const curVal = fm.configVal;
-      if (curVal == null) continue;
-
-      // Find high-potential candidates (score >=5) rejected by this filter
-      const hitCandidates = scored.filter(s =>
-        s.score >= 5 && s.failures.some(f => f.toLowerCase().includes(fm.name))
-      );
-      if (!hitCandidates.length) continue;
-
-      // Get the relevant metric from their details, or extract from failure message
-      const detailKey = fm.name.includes('holder') ? 'top10Pct'
-        : fm.name.includes('volume') ? 'volume'
-        : fm.name.includes('swap') ? 'swaps'
-        : fm.name.includes('liquid') ? 'liquidityUsd'
-        : null;
-      let values;
-      if (detailKey) {
-        values = hitCandidates.map(c => {
-          const d = c.details.find(dd => dd.key === detailKey);
-          return d ? d.val : null;
-        }).filter(v => v != null);
-      } else {
-        // Extract first number from failure message as candidate's value
-        values = hitCandidates.map(c => {
-          const fail = c.failures.find(f => f.toLowerCase().includes(fm.name));
-          if (!fail) return null;
-          const m = fail.match(/[\d,.]+/);
-          return m ? parseFloat(m[0].replace(/,/g,'')) : null;
-        }).filter(v => v != null);
       }
 
-      if (!values.length) continue;
+      tradeScored.sort((a, b) => b.score - a.score);
 
-      const sorted = [...values].sort((a,b) => a-b);
-      const p20 = sorted[Math.floor(sorted.length * 0.2)];
-      const p80 = sorted[Math.floor(sorted.length * 0.8)];
-      // For MAX-type filters (fail when value > threshold): loosen by raising threshold → use P80
-      // For MIN-type filters (fail when value < threshold): loosen by lowering threshold → use P20
-      const suggest = fm.isMax ? Math.ceil(p80) : Math.floor(p20);
-      if (suggest > 0 && suggest !== curVal) {
-        const looser = fm.isMax ? suggest > curVal : suggest < curVal;
-        recommendations.push({
-          filter: fm.desc,
-          current: curVal,
-          suggest,
-          impact: looser ? 'loosen' : 'tighten',
-          candidatesLost: hitCandidates.length,
-        });
+      topPotential = tradeScored.slice(0, 20).map(s => ({
+        score: s.score,
+        maxScore: bounds.length * 2,
+        pct: Math.round(s.score / (bounds.length * 2) * 100),
+        details: s.details,
+        filters: s.failures,
+      }));
+
+      byScore = { high: 0, medium: 0, low: 0 };
+      tradeScored.forEach(s => {
+        const pct = s.score / (bounds.length * 2);
+        if (pct >= 0.5) byScore.high++;
+        else if (pct >= 0.3) byScore.medium++;
+        else byScore.low++;
+      });
+
+      worstFilters = Object.entries(filterHitByScore)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10);
+
+      for (const b of bounds) {
+        winnerRanges[b.key] = { winnerMin: b.winnerMin, winnerMax: b.winnerMax, loserMin: b.loserMin, loserMax: b.loserMax };
+      }
+
+      // ── Build recommendations ──
+      const activeStrategy = db.prepare("SELECT config_json FROM strategies WHERE enabled = 1 LIMIT 1").get();
+      const config = activeStrategy ? JSON.parse(activeStrategy.config_json) : {};
+
+      const filterMap = [
+        { name: 'top holder', configKey: 'max_top20_holder_percent', configVal: config.max_top20_holder_percent, isMax: true, desc: 'Max Top20' },
+        { name: 'market cap min', configKey: 'min_mcap_usd', configVal: config.min_mcap_usd, isMax: false, desc: 'Min MCAP' },
+        { name: 'market cap max', configKey: 'max_mcap_usd', configVal: config.max_mcap_usd, isMax: true, desc: 'Max MCAP' },
+        { name: 'trending volume', configKey: 'trending_min_volume_usd', configVal: config.trending_min_volume_usd, isMax: false, desc: 'Min Vol' },
+        { name: 'trending swaps', configKey: 'trending_min_swaps', configVal: config.trending_min_swaps, isMax: false, desc: 'Min Swaps' },
+        { name: 'liquidity', configKey: 'min_liquidity_usd', configVal: config.min_liquidity_usd, isMax: false, desc: 'Min Liq' },
+        { name: 'holders', configKey: 'min_holders', configVal: config.min_holders, isMax: false, desc: 'Min Holders' },
+        { name: 'fee claim', configKey: 'min_fee_claim_sol', configVal: config.min_fee_claim_sol, isMax: false, desc: 'Fee Claim' },
+      ];
+
+      for (const fm of filterMap) {
+        const hitData = worstFilters.find(w => w[0].toLowerCase().includes(fm.name));
+        if (!hitData) continue;
+        const curVal = fm.configVal;
+        if (curVal == null) continue;
+
+        const hitCandidates = tradeScored.filter(s =>
+          s.score >= 5 && s.failures.some(f => f.toLowerCase().includes(fm.name))
+        );
+        if (!hitCandidates.length) continue;
+
+        const detailKey = fm.name.includes('holder') ? 'top10Pct'
+          : fm.name.includes('volume') ? 'volume'
+          : fm.name.includes('swap') ? 'swaps'
+          : fm.name.includes('liquid') ? 'liquidityUsd'
+          : null;
+        let values;
+        if (detailKey) {
+          values = hitCandidates.map(c => {
+            const d = c.details.find(dd => dd.key === detailKey);
+            return d ? d.val : null;
+          }).filter(v => v != null);
+        } else {
+          values = hitCandidates.map(c => {
+            const fail = c.failures.find(f => f.toLowerCase().includes(fm.name));
+            if (!fail) return null;
+            const m = fail.match(/[\d,.]+/);
+            return m ? parseFloat(m[0].replace(/,/g, '')) : null;
+          }).filter(v => v != null);
+        }
+
+        if (!values.length) continue;
+
+        const sorted = [...values].sort((a, b) => a - b);
+        const p20 = sorted[Math.floor(sorted.length * 0.2)];
+        const p80 = sorted[Math.floor(sorted.length * 0.8)];
+        const suggest = fm.isMax ? Math.ceil(p80) : Math.floor(p20);
+        if (suggest > 0 && suggest !== curVal) {
+          const looser = fm.isMax ? suggest > curVal : suggest < curVal;
+          recommendations.push({
+            filter: fm.desc,
+            current: curVal,
+            suggest,
+            impact: looser ? 'loosen' : 'tighten',
+            candidatesLost: hitCandidates.length,
+          });
+        }
+      }
+      loosenRecs = recommendations.filter(r => r.impact === 'loosen');
+    }
+
+    // ── Smart-score-based recommendations fallback ──
+    if (!tradeBasedAvailable) {
+      const filterMap = [
+        { name: 'top holder', key: 'max_top20_holder_percent', isMax: true, desc: 'Max Top20' },
+        { name: 'market cap min', key: 'min_mcap_usd', isMax: false, desc: 'Min MCAP' },
+        { name: 'market cap max', key: 'max_mcap_usd', isMax: true, desc: 'Max MCAP' },
+        { name: 'trending volume', key: 'trending_min_volume_usd', isMax: false, desc: 'Min Vol' },
+        { name: 'trending swaps', key: 'trending_min_swaps', isMax: false, desc: 'Min Swaps' },
+        { name: 'liquidity', key: 'min_liquidity_usd', isMax: false, desc: 'Min Liq' },
+        { name: 'holders', key: 'min_holders', isMax: false, desc: 'Min Holders' },
+        { name: 'fee claim', key: 'min_fee_claim_sol', isMax: false, desc: 'Fee Claim' },
+        { name: 'top10 holder sum', key: 'max_top10_holder_percent', isMax: true, desc: 'Max Top10' },
+      ];
+      loosenRecs = [];
+      const blockedByFilter = {};
+
+      for (const s of smartScored) {
+        if (s.pct < 45) continue;
+        for (const f of s.filters) {
+          const norm = f.replace(/:.*/, '').trim();
+          if (!blockedByFilter[norm]) blockedByFilter[norm] = { count: 0, values: [] };
+          blockedByFilter[norm].count++;
+          const m = f.match(/[\d,.]+/);
+          if (m) blockedByFilter[norm].values.push(parseFloat(m[0].replace(/,/g, '')));
+        }
+      }
+
+      const activeCfg = db.prepare("SELECT config_json FROM strategies WHERE enabled = 1 LIMIT 1").get();
+      const config = activeCfg ? JSON.parse(activeCfg.config_json) : {};
+
+      for (const fm of filterMap) {
+        const entry = Object.entries(blockedByFilter).find(([name]) => name.toLowerCase().includes(fm.name));
+        if (!entry) continue;
+        const [, data] = entry;
+        const curVal = config[fm.key];
+        if (curVal == null || !data.values.length) continue;
+
+        const sorted = [...data.values].sort((a, b) => a - b);
+        const suggest = fm.isMax ? Math.ceil(sorted[Math.floor(sorted.length * 0.8)]) : Math.floor(sorted[Math.floor(sorted.length * 0.2)]);
+        if (suggest > 0 && suggest !== curVal) {
+          const looser = fm.isMax ? suggest > curVal : suggest < curVal;
+          if (looser) {
+            loosenRecs.push({
+              filter: fm.desc,
+              current: curVal,
+              suggest,
+              impact: 'loosen',
+              candidatesLost: data.count,
+            });
+          }
+        }
       }
     }
-    const loosenRecs = recommendations.filter(r => r.impact === 'loosen');
 
     res.json({
       totalRejected: totalFiltered,
-      totalScored: scored.length,
+      tradeBasedAvailable,
       winners: winners.length,
       losers: losers.length,
       winnerRanges,
@@ -722,6 +1070,20 @@ app.get('/api/potential-analysis', (req, res) => {
       topPotential,
       worstFilters: worstFilters.map(([name, totalScore]) => ({ filter: name, totalScore })),
       recommendations: loosenRecs,
+      // New: always-available scores
+      smartScore: {
+        top: topSmart,
+        scoredCount: smartScored.length,
+        highCount: smartScored.filter(s => s.pct >= 60).length,
+        mediumCount: smartScored.filter(s => s.pct >= 35 && s.pct < 60).length,
+        lowCount: smartScored.filter(s => s.pct < 35).length,
+      },
+      savedWalletScore: {
+        top: topSaved,
+        withOverlap: swCountWithOverlap,
+        totalChecked: smartScored.length,
+      },
+      mode: mode || 'all',
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -778,13 +1140,7 @@ app.post('/api/apply-recommendations', (req, res) => {
       return res.status(400).json({ error: 'No matching config keys found' });
     }
 
-    openDb(false);
-    try {
-      db.prepare("UPDATE strategies SET config_json = ? WHERE id = ?").run(JSON.stringify(config), activeStrategy.id);
-    } finally {
-      openDb(true);
-    }
-
+    db.prepare("UPDATE strategies SET config_json = ? WHERE id = ?").run(JSON.stringify(config), activeStrategy.id);
     res.json({ success: true, applied, config });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -835,23 +1191,18 @@ app.post('/api/positions/:id/close', async (req, res) => {
         let pnlPercent = sizeSol > 0 ? (outputSol / sizeSol - 1) * 100 : 0;
         let exitPrice = sizeSol > 0 ? (position.entry_price * outputSol / sizeSol) : position.entry_price;
         let exitMcap = null;
-        openDb(false);
-        try {
-          db.prepare(`
-            UPDATE dry_run_positions
-            SET status = 'closed', closed_at_ms = ?, exit_price = ?, exit_mcap = ?,
-                exit_reason = 'MANUAL', pnl_percent = ?, pnl_sol = ?
-            WHERE id = ?
-          `).run(now(), exitPrice, exitMcap, pnlPercent, pnlSol, position.id);
-          db.prepare(`
-            INSERT INTO dry_run_trades (position_id, mint, side, at_ms, price, mcap, size_sol, token_amount_est, reason, payload_json)
-            VALUES (?, ?, 'sell', ?, ?, ?, ?, ?, 'MANUAL', ?)
-            `).run(position.id, position.mint, now(), exitPrice, exitMcap,
-            sizeSol, position.token_amount_raw || position.token_amount_est,
-            JSON.stringify({ pnlPercent, pnlSol, outputSol, sizeSol, signature: result.signature, closedAt: new Date().toISOString() }));
-        } finally {
-          openDb(true);
-        }
+        db.prepare(`
+          UPDATE dry_run_positions
+          SET status = 'closed', closed_at_ms = ?, exit_price = ?, exit_mcap = ?,
+              exit_reason = 'MANUAL', pnl_percent = ?, pnl_sol = ?
+          WHERE id = ?
+        `).run(now(), exitPrice, exitMcap, pnlPercent, pnlSol, position.id);
+        db.prepare(`
+          INSERT INTO dry_run_trades (position_id, mint, side, at_ms, price, mcap, size_sol, token_amount_est, reason, payload_json)
+          VALUES (?, ?, 'sell', ?, ?, ?, ?, ?, 'MANUAL', ?)
+          `).run(position.id, position.mint, now(), exitPrice, exitMcap,
+          sizeSol, position.token_amount_raw || position.token_amount_est,
+          JSON.stringify({ pnlPercent, pnlSol, outputSol, sizeSol, signature: result.signature, closedAt: new Date().toISOString() }));
         return res.json({ success: true, id, pnlPercent, pnlSol, signature: result.signature });
       } catch (err) {
         console.error(`Live close swap failed:`, err);
@@ -883,24 +1234,19 @@ app.post('/api/positions/:id/close', async (req, res) => {
       console.error(`Close trade asset fetch failed: ${err.message}`);
     }
 
-    openDb(false);
-    try {
-      db.prepare(`
-        UPDATE dry_run_positions
-        SET status = 'closed', closed_at_ms = ?, exit_price = ?, exit_mcap = ?,
-            exit_reason = 'MANUAL', pnl_percent = ?, pnl_sol = ?
-        WHERE id = ?
-      `).run(now(), price, mcap, pnlPercent, pnlSol, position.id);
+    db.prepare(`
+      UPDATE dry_run_positions
+      SET status = 'closed', closed_at_ms = ?, exit_price = ?, exit_mcap = ?,
+          exit_reason = 'MANUAL', pnl_percent = ?, pnl_sol = ?
+      WHERE id = ?
+    `).run(now(), price, mcap, pnlPercent, pnlSol, position.id);
 
-      db.prepare(`
-        INSERT INTO dry_run_trades (position_id, mint, side, at_ms, price, mcap, size_sol, token_amount_est, reason, payload_json)
-        VALUES (?, ?, 'sell', ?, ?, ?, ?, ?, 'MANUAL', ?)
-      `).run(position.id, position.mint, now(), price, mcap,
-        Number(position.size_sol), position.token_amount_est || position.token_amount_raw || null,
-        JSON.stringify({ pnlPercent, pnlSol, closedAt: new Date().toISOString() }));
-    } finally {
-      openDb(true);
-    }
+    db.prepare(`
+      INSERT INTO dry_run_trades (position_id, mint, side, at_ms, price, mcap, size_sol, token_amount_est, reason, payload_json)
+      VALUES (?, ?, 'sell', ?, ?, ?, ?, ?, 'MANUAL', ?)
+    `).run(position.id, position.mint, now(), price, mcap,
+      Number(position.size_sol), position.token_amount_est || position.token_amount_raw || null,
+      JSON.stringify({ pnlPercent, pnlSol, closedAt: new Date().toISOString() }));
 
     res.json({ success: true, id, pnlPercent, pnlSol });
   } catch (err) {
@@ -909,7 +1255,7 @@ app.post('/api/positions/:id/close', async (req, res) => {
   }
 });
 
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), { etag: false, maxAge: 0, lastModified: false }));
 
 // Health check — responds immediately even if DB is busy
 app.get('/api/health', (req, res) => {

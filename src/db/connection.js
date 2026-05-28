@@ -216,6 +216,7 @@ export function initDb() {
   ensureColumn('dry_run_positions', 'max_pnl_sol', 'REAL');
   ensureColumn('dry_run_positions', 'min_pnl_sol', 'REAL');
   ensureColumn('decision_logs', 'strategy_id', 'TEXT');
+  ensureColumn('llm_batches', 'candidate_ids_json', 'TEXT NOT NULL DEFAULT \'[]\'');
 
   const defaults = {
     agent_enabled: 'true',

@@ -2,11 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>charon — terminal v1.0</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
+html { overflow-x: hidden; }
 
 body {
   font-family: 'Courier New', 'Consolas', 'Lucida Console', monospace;
@@ -18,6 +20,7 @@ body {
   line-height: 1.4;
   -webkit-font-smoothing: antialiased;
   text-shadow: 0 0 0.5px rgba(255,255,255,0.15);
+  overflow-x: hidden;
 }
 
 .container { max-width: 100%; margin: 0; }
@@ -97,6 +100,7 @@ header .title span { color: #666; }
 .mode-tabs button:last-child {
   border-right: none;
 }
+.mode-tabs button.active { color:#00ff41; border-color:#00ff41; }
 
 .mode-tabs button:hover {
   color: #aaa;
@@ -831,45 +835,94 @@ tbody tr:nth-child(even):hover { background: #1a1a1a; }
 }
 
 /* ── Login overlay ── */
-#loginOverlay {
+body { display: block; }
+body.auth-hidden .container { display: none; }
+body.auth-hidden .login-overlay { display: flex; }
+body.auth-shown .container { display: block; }
+body.auth-shown .login-overlay { display: none; }
+.login-overlay {
   position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-  background: #000; display: flex; align-items: center; justify-content: center;
-  z-index: 9999; flex-direction: column;
+  background: #000; display: none; align-items: center; justify-content: center;
+  z-index: 9999;
 }
-#loginOverlay.hidden { display: none; }
 .login-box {
-  background: #0a0a0a; border: 1px solid #333; padding: 32px 40px;
-  text-align: center; max-width: 360px; width: 90%;
+  border: 1px solid #333; background: #0a0a0a; padding: 40px; max-width: 400px; width: 90%;
 }
-.login-title { font-size: 18px; letter-spacing: 3px; text-transform: uppercase; color: #fff; margin-bottom: 4px; }
-.login-title span { color: #666; }
-.login-sub { font-size: 12px; color: #666; margin-bottom: 20px; }
+.login-box h1 {
+  color: #fff; font-size: 16px; text-transform: uppercase; letter-spacing: 3px;
+  text-align: center; margin-bottom: 8px; font-weight: 700;
+}
+.login-box .sub {
+  color: #555; font-size: 11px; text-align: center; margin-bottom: 24px;
+  letter-spacing: 1px;
+}
 .login-box input {
-  width: 100%; padding: 10px; background: #111; border: 1px solid #333;
-  color: #e0e0e0; font-family: inherit; font-size: 14px; text-align: center;
-  outline: none; margin-bottom: 12px; box-sizing: border-box;
+  width: 100%; background: #111; color: #c0c0c0; border: 1px solid #444;
+  padding: 12px; font-family: inherit; font-size: 14px; text-align: center;
+  letter-spacing: 2px; outline: none;
 }
-.login-box input:focus { border-color: #555; }
-.login-box button {
-  width: 100%; padding: 10px; background: #1a1a1a; border: 1px solid #444;
-  color: #c0c0c0; font-family: inherit; font-size: 13px; text-transform: uppercase;
-  letter-spacing: 2px; cursor: pointer;
+.login-box input:focus { border-color: #888; color: #fff; }
+.login-box input::placeholder { color: #444; letter-spacing: 1px; font-size: 12px; }
+.login-box .error {
+  color: #ff3355; font-size: 11px; text-align: center; margin-top: 12px;
+  letter-spacing: 1px;
 }
-.login-box button:hover { background: #222; border-color: #888; color: #fff; }
-#loginError { color: #ff4444; font-size: 12px; margin-top: 10px; min-height: 18px; }
-
+.login-box .hint {
+  color: #444; font-size: 10px; text-align: center; margin-top: 16px;
+  letter-spacing: 0.5px;
+}
 </style>
 </head>
-<body>
-<div id="loginOverlay">
+<body class="auth-hidden">
+<div class="login-overlay" id="authOverlay">
   <div class="login-box">
-    <div class="login-title">CHARON <span>v1.0</span></div>
-    <div class="login-sub">Enter password to access terminal</div>
-    <input type="password" id="loginPassword" placeholder="Password" autofocus>
-    <button id="loginBtn" onclick="verifyPassword()">Unlock</button>
-    <div id="loginError"></div>
+    <h1>CHARON</h1>
+    <div class="sub">Enter password</div>
+    <input type="password" id="authPwd" placeholder="········" autocomplete="off" />
+    <div class="error" id="authError"></div>
+    <div class="hint">press Enter</div>
   </div>
 </div>
+<script>
+(function() {
+  if (localStorage.getItem('charon_auth')) {
+    document.body.classList.remove('auth-hidden');
+    document.body.classList.add('auth-shown');
+    return;
+  }
+  var input = document.getElementById('authPwd');
+  var errEl = document.getElementById('authError');
+  var locked = false;
+  input.focus();
+  input.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !locked) {
+      locked = true;
+      errEl.textContent = '';
+      fetch('/api/verify-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: input.value })
+      })
+      .then(function(r) {
+        if (r.ok) {
+          localStorage.setItem('charon_auth', '1');
+          document.body.classList.remove('auth-hidden');
+          document.body.classList.add('auth-shown');
+        } else {
+          return r.json().then(function(d) { throw new Error(d.error || 'Wrong password'); });
+        }
+      })
+      .catch(function(e) {
+        errEl.textContent = e.message;
+        locked = false;
+        input.value = '';
+        input.focus();
+      });
+    }
+  });
+  document.addEventListener('click', function() { input.focus(); });
+})();
+</script>
 <div class="container">
 <div class="terminal-frame">
 <header>
@@ -891,19 +944,19 @@ tbody tr:nth-child(even):hover { background: #1a1a1a; }
   </div>
 </header>
 <div class="mode-bar">
-  <div class="mode-tabs">
+  <div class="mode-tabs" style="margin-left:auto;">
     <button class="mode-btn" data-mode="live" onclick="setMode('live')">Live</button>
     <button class="mode-btn" data-mode="confirm" onclick="setMode('confirm')">Confirm</button>
     <button class="mode-btn" data-mode="dry_run" onclick="setMode('dry_run')">Dry Run</button>
   </div>
 </div>
+
+<div id="page-dashboard">
 <div class="cards" id="summaryCards"></div>
 
 <div class="chart-wrap open" id="chartWrap">
   <canvas id="portfolioChart"></canvas>
 </div>
-
-
 
 <div class="details-wrap" id="analysisWrap">
   <div style="text-align:center;padding:6px 0">
@@ -915,44 +968,52 @@ tbody tr:nth-child(even):hover { background: #1a1a1a; }
 <div class="details-wrap" id="detailsWrap"></div>
 
 <div class="filters">
-  <button class="filter-toggle" id="filterToggle" onclick="toggleFilters()">
-    <span class="icon">▤</span> Filter
-  </button>
-  <div class="filter-controls" id="filterControls">
-    <label>Status:</label>
-    <select id="statusFilter" onchange="applyFilters()">
-      <option value="">All</option>
-      <option value="open">Open</option>
-      <option value="closed">Closed</option>
+    <button class="filter-toggle" id="filterToggle" onclick="toggleFilters()">
+      <span class="icon">▤</span> Filter
+    </button>
+    <div class="filter-controls" id="filterControls">
+      <label>Status:</label>
+      <select id="statusFilter" onchange="applyFilters()">
+        <option value="">All</option>
+        <option value="open">Open</option>
+        <option value="closed">Closed</option>
+      </select>
+      <label>Strategy:</label>
+      <select id="strategyFilter" onchange="applyFilters()"><option value="">All</option></select>
+      <label>Symbol:</label>
+      <input type="text" id="symbolSearch" placeholder="Search..." oninput="applyFilters()">
+      <label>Open:</label>
+      <div class="filter-group">
+        <input type="date" id="openDateFrom" onchange="applyFilters()">
+        <span class="filter-sep">—</span>
+        <input type="date" id="openDateTo" onchange="applyFilters()">
+      </div>
+      <label>Close:</label>
+      <div class="filter-group">
+        <input type="date" id="closeDateFrom" onchange="applyFilters()">
+        <span class="filter-sep">—</span>
+        <input type="date" id="closeDateTo" onchange="applyFilters()">
+      </div>
+    </div>
+    <div style="display:flex; align-items:center; gap:4px; margin-left:auto; white-space:nowrap;">
+      <span style="font-size:10px; color:#555;">DEL</span>
+      <input type="number" id="deleteFromId" placeholder="#" style="width:48px; padding:3px 5px; background:#111; border:1px solid #333; color:#c0c0c0; font-family:inherit; font-size:11px; text-align:center;">
+      <span style="color:#333; font-size:10px;">–</span>
+      <input type="number" id="deleteToId" placeholder="#" style="width:48px; padding:3px 5px; background:#111; border:1px solid #333; color:#c0c0c0; font-family:inherit; font-size:11px; text-align:center;">
+      <button onclick="deleteTradesFromFilters()" style="background:none;color:#ff3355;border:1px solid #333;padding:3px 6px;cursor:pointer;font-family:inherit;font-size:11px;font-weight:700;border-radius:2px;line-height:1;">DEL</button>
+      <span id="deleteTradeResult" style="font-size:10px; color:#555;"></span>
+    </div>
+    <label>Rows:</label>
+    <select id="rowsPerPageSelect" onchange="setRowsPerPage(this)">
+      <option value="10">10</option>
+      <option value="20" selected>20</option>
+      <option value="50">50</option>
+      <option value="100">100</option>
+      <option value="200">200</option>
     </select>
-    <label>Strategy:</label>
-    <select id="strategyFilter" onchange="applyFilters()"><option value="">All</option></select>
-    <label>Symbol:</label>
-    <input type="text" id="symbolSearch" placeholder="Search..." oninput="applyFilters()">
-    <label>Open:</label>
-    <div class="filter-group">
-      <input type="date" id="openDateFrom" onchange="applyFilters()">
-      <span class="filter-sep">—</span>
-      <input type="date" id="openDateTo" onchange="applyFilters()">
-    </div>
-    <label>Close:</label>
-    <div class="filter-group">
-      <input type="date" id="closeDateFrom" onchange="applyFilters()">
-      <span class="filter-sep">—</span>
-      <input type="date" id="closeDateTo" onchange="applyFilters()">
-    </div>
+    <span class="count" id="rowCount"></span>
+    <div class="page-nav" id="pageNav"></div>
   </div>
-  <label>Rows:</label>
-  <select id="rowsPerPageSelect" onchange="setRowsPerPage(this)">
-    <option value="10">10</option>
-    <option value="20" selected>20</option>
-    <option value="50">50</option>
-    <option value="100">100</option>
-    <option value="200">200</option>
-  </select>
-  <span class="count" id="rowCount"></span>
-  <div class="page-nav" id="pageNav"></div>
-</div>
 <div class="table-wrap">
   <table>
 
@@ -977,6 +1038,7 @@ tbody tr:nth-child(even):hover { background: #1a1a1a; }
   </table>
 </div>
 <div id="loadingState" class="loading">Loading positions...</div>
+</div>
 </div>
 </div>
 <script>
@@ -1557,7 +1619,7 @@ function renderAnalysis(data) {
 function fetchAnalysis() {
   const el = document.getElementById('analysisWrap');
   el.innerHTML = '<div class="section-label" style="border-top:none;padding-top:0;margin-top:0">Analysis</div><div class="loading" style="padding:10px">Analyzing...</div>';
-  fetch('/api/analysis').then(r => r.json()).then(data => {
+  fetch(`/api/analysis?mode=${modeFilter}`).then(r => r.json()).then(data => {
     renderAnalysis(data);
   }).catch(err => {
     el.innerHTML = '<div class="section-label" style="border-top:none;padding-top:0;margin-top:0">Analysis</div><div class="row"><span class="item" style="color:#888">Analysis unavailable</span></div><div style="text-align:center;padding:6px 0">' + analysisButtons + '</div>';
@@ -1576,101 +1638,155 @@ function renderPotential(data) {
     return;
   }
 
-  const label = '<div class="section-label" style="border-top:1px solid #2a2a2a">POTENTIAL</div>';
+  const modeLabel = data.mode && data.mode !== 'all' ? ` <span style="color:#555;font-size:10px">[${data.mode.toUpperCase()}]</span>` : '';
+const label = '<div class="section-label" style="border-top:1px solid #2a2a2a">POTENTIAL</div>' + modeLabel;
   let h = '';
 
   h += '<div class="anal-summary">' +
-    '<div class="anal-sum-item"><span class="anal-label">Winners</span><span class="anal-val g">' + data.winners + '</span></div>' +
-    '<div class="anal-sum-item"><span class="anal-label">Losers</span><span class="anal-val r">' + data.losers + '</span></div>' +
     '<div class="anal-sum-item"><span class="anal-label">Rejected</span><span class="anal-val">' + data.totalRejected + '</span></div>' +
-    '<div class="anal-sum-item"><span class="anal-label">Scored</span><span class="anal-val">' + data.totalScored + '</span></div>' +
     '</div>';
 
-  // Winner profile ranges
-  h += '<div class="anal-section"><div class="anal-section-title">WINNER PROFILE</div><table style="width:100%;font-size:11px;border-collapse:collapse">' +
-    '<tr style="color:#888"><th style="text-align:left;padding:2px 4px">Metric</th><th style="padding:2px 4px">Winner</th><th style="padding:2px 4px">Loser</th></tr>';
-  const fmt = {
-    top10Pct: v => v.toFixed(1) + '%',
-    liquidityUsd: v => v >= 1000 ? '$'+(v/1000).toFixed(0)+'K' : '$'+v.toFixed(0),
-    holderCount: v => v + '',
-    volume: v => v >= 1000 ? '$'+(v/1000).toFixed(0)+'K' : '$'+v.toFixed(0),
-    swaps: v => v.toLocaleString(),
-  };
-  const labels = { top10Pct: 'Top10%', liquidityUsd: 'Liq', holderCount: 'Holders', volume: 'Volume', swaps: 'Swaps' };
-  for (const [key, r] of Object.entries(data.winnerRanges)) {
-    h += '<tr><td style="padding:2px 4px">' + (labels[key] || key) + '</td>' +
-      '<td style="text-align:center;color:#00ff41">' + fmt[key](r.winnerMin) + ' – ' + fmt[key](r.winnerMax) + '</td>' +
-      '<td style="text-align:center;color:#ff4136">' + fmt[key](r.loserMin) + ' – ' + fmt[key](r.loserMax) + '</td></tr>';
-  }
-  h += '</table></div>';
-
-  // Distribution
-  const dist = data.distribution;
-  const total = dist.high + dist.medium + dist.low || 1;
-  h += '<div class="anal-section"><div class="anal-section-title">SCORE DISTRIBUTION</div>' +
-    '<div style="display:flex;gap:4px;padding:4px 0;font-size:11px">' +
-    '<span style="flex:' + dist.high + ';background:#00ff4133;text-align:center;padding:2px">High ' + Math.round(dist.high/total*100) + '%</span>' +
-    '<span style="flex:' + dist.medium + ';background:#ffd70033;text-align:center;padding:2px">Med ' + Math.round(dist.medium/total*100) + '%</span>' +
-    '<span style="flex:' + dist.low + ';background:#ff413633;text-align:center;padding:2px">Low ' + Math.round(dist.low/total*100) + '%</span>' +
-    '</div></div>';
-
-  // Top potential candidates
-  if (data.topPotential && data.topPotential.length) {
-    h += '<div class="anal-section"><div class="anal-section-title">TOP POTENTIAL CANDIDATES (rejected)</div>';
-    data.topPotential.slice(0, 10).forEach((c, i) => {
-      const pctCls = c.pct >= 50 ? 'g' : c.pct >= 30 ? '' : 'r';
+  // ── SMART SCORE (always available) ──
+  const ss = data.smartScore;
+  if (ss && ss.top && ss.top.length) {
+    const st = ss.highCount + ss.mediumCount + ss.lowCount || 1;
+    h += '<div class="anal-section"><div class="anal-section-title">SMART SCORE <span style="color:#555;font-weight:400;font-size:10px">(tanpa data trading)</span></div>' +
+      '<div style="display:flex;gap:4px;padding:4px 0;font-size:11px">' +
+      '<span style="flex:' + ss.highCount + ';background:#00ff4133;text-align:center;padding:2px">Potensial ' + Math.round(ss.highCount/st*100) + '%</span>' +
+      '<span style="flex:' + ss.mediumCount + ';background:#ffd70033;text-align:center;padding:2px">Lumayan ' + Math.round(ss.mediumCount/st*100) + '%</span>' +
+      '<span style="flex:' + ss.lowCount + ';background:#ff413633;text-align:center;padding:2px">Rendah ' + Math.round(ss.lowCount/st*100) + '%</span>' +
+      '</div>';
+    ss.top.slice(0, 8).forEach((c, i) => {
+      const pctCls = c.pct >= 60 ? 'g' : c.pct >= 35 ? '' : 'r';
+      const d = c.details;
       h += '<div style="padding:3px 0;font-size:11px;border-bottom:1px solid #1a1a1a">' +
-        '<span style="color:#888">#' + (i+1) + '</span> score ' + c.score + '/' + c.maxScore +
-        ' <span class="' + pctCls + '">(' + c.pct + '%)</span>' +
-        ' <span style="color:#555">' + c.details.map(d => (labels[d.key] || d.key) + '=' + fmt[d.key](d.val)).join(' ') + '</span>' +
-        ' <span style="color:#888">rejected: ' + c.filters.join('; ') + '</span>' +
+        '<span style="color:#888">#' + (i+1) + '</span> ' +
+        '<span class="' + pctCls + '" style="font-weight:700">' + c.pct + '</span>' +
+        ' <span style="color:#555;font-size:10px">' +
+        (d.holderScore ? '<span title="' + d.holderScore.desc + '">Pmg:' + d.holderScore.val + '</span> ' : '') +
+        (d.volScore ? '<span title="' + d.volScore.desc + '">Akt:' + d.volScore.val + '</span> ' : '') +
+        (d.liqScore ? '<span title="' + d.liqScore.desc + '">Liq:' + d.liqScore.val + '</span> ' : '') +
+        (d.sigScore ? '<span title="' + d.sigScore.desc + '">Src:' + d.sigScore.val + '</span> ' : '') +
+        (d.rugScore ? '<span title="' + d.rugScore.desc + '">Amn:' + d.rugScore.val + '</span>' : '') +
+        '</span>' +
+        ' <span style="color:#888;font-size:10px">' + c.filters.join('; ') + '</span>' +
         '</div>';
     });
     h += '</div>';
   }
 
-  // Worst filters
-  if (data.worstFilters && data.worstFilters.length) {
-    h += '<div class="anal-section"><div class="anal-section-title" style="color:#ff4136">STRICTEST FILTERS</div>';
-    const maxScore = data.worstFilters[0].totalScore;
-    data.worstFilters.forEach(f => {
-      const bar = Math.round(f.totalScore / maxScore * 100);
-      h += '<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:11px">' +
-        '<span style="width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + f.filter + '</span>' +
-        '<div style="flex:1;height:12px;background:#1a1a1a;border-radius:2px"><div style="width:' + bar + '%;height:100%;background:#ff4136;border-radius:2px"></div></div>' +
-        '<span style="color:#888;width:40px;text-align:right">' + f.totalScore + '</span>' +
+  // ── SAVED WALLET OVERLAP (always available) ──
+  const sw = data.savedWalletScore;
+  if (sw && sw.top && sw.top.length) {
+    h += '<div class="anal-section"><div class="anal-section-title">WALLET SAVED <span style="color:#555;font-weight:400;font-size:10px">(' + sw.withOverlap + '/' + sw.totalChecked + ' dipegang wallet saved)</span></div>';
+    sw.top.slice(0, 8).forEach((c, i) => {
+      const pctCls = c.pct >= 50 ? 'g' : c.pct >= 20 ? '' : 'r';
+      h += '<div style="padding:3px 0;font-size:11px;border-bottom:1px solid #1a1a1a">' +
+        '<span style="color:#888">#' + (i+1) + '</span> ' +
+        '<span class="' + pctCls + '" style="font-weight:700">' + c.pct + '</span>' +
+        ' <span style="color:#555">saved: ' + c.count + '/' + c.checked + '</span>' +
+        ' <span style="color:#888;font-size:10px">' + c.filters.join('; ') + '</span>' +
         '</div>';
     });
     h += '</div>';
   }
 
-  // Recommendations
+  // ── TRADE-BASED (only when data available) ──
+  if (data.tradeBasedAvailable) {
+    h += '<div class="anal-summary">' +
+      '<div class="anal-sum-item"><span class="anal-label">Winners</span><span class="anal-val g">' + data.winners + '</span></div>' +
+      '<div class="anal-sum-item"><span class="anal-label">Losers</span><span class="anal-val r">' + data.losers + '</span></div>' +
+      '<div class="anal-sum-item"><span class="anal-label">Scored</span><span class="anal-val">' + (data.topPotential ? data.topPotential.length : 0) + '</span></div>' +
+      '</div>';
+
+    // Winner profile ranges
+    h += '<div class="anal-section"><div class="anal-section-title">WINNER PROFILE</div><table style="width:100%;font-size:11px;border-collapse:collapse">' +
+      '<tr style="color:#888"><th style="text-align:left;padding:2px 4px">Metric</th><th style="padding:2px 4px">Winner</th><th style="padding:2px 4px">Loser</th></tr>';
+    const fmt = {
+      top10Pct: v => v.toFixed(1) + '%',
+      liquidityUsd: v => v >= 1000 ? '$'+(v/1000).toFixed(0)+'K' : '$'+v.toFixed(0),
+      holderCount: v => v + '',
+      volume: v => v >= 1000 ? '$'+(v/1000).toFixed(0)+'K' : '$'+v.toFixed(0),
+      swaps: v => v.toLocaleString(),
+    };
+    const labels = { top10Pct: 'Top10%', liquidityUsd: 'Liq', holderCount: 'Holders', volume: 'Volume', swaps: 'Swaps' };
+    for (const [key, r] of Object.entries(data.winnerRanges)) {
+      h += '<tr><td style="padding:2px 4px">' + (labels[key] || key) + '</td>' +
+        '<td style="text-align:center;color:#00ff41">' + fmt[key](r.winnerMin) + ' – ' + fmt[key](r.winnerMax) + '</td>' +
+        '<td style="text-align:center;color:#ff4136">' + fmt[key](r.loserMin) + ' – ' + fmt[key](r.loserMax) + '</td></tr>';
+    }
+    h += '</table></div>';
+
+    // Distribution
+    const dist = data.distribution;
+    const total = dist.high + dist.medium + dist.low || 1;
+    h += '<div class="anal-section"><div class="anal-section-title">SCORE DISTRIBUTION</div>' +
+      '<div style="display:flex;gap:4px;padding:4px 0;font-size:11px">' +
+      '<span style="flex:' + dist.high + ';background:#00ff4133;text-align:center;padding:2px">High ' + Math.round(dist.high/total*100) + '%</span>' +
+      '<span style="flex:' + dist.medium + ';background:#ffd70033;text-align:center;padding:2px">Med ' + Math.round(dist.medium/total*100) + '%</span>' +
+      '<span style="flex:' + dist.low + ';background:#ff413633;text-align:center;padding:2px">Low ' + Math.round(dist.low/total*100) + '%</span>' +
+      '</div></div>';
+
+    // Top potential candidates
+    if (data.topPotential && data.topPotential.length) {
+      h += '<div class="anal-section"><div class="anal-section-title">TOP POTENTIAL CANDIDATES (rejected)</div>';
+      data.topPotential.slice(0, 10).forEach((c, i) => {
+        const pctCls = c.pct >= 50 ? 'g' : c.pct >= 30 ? '' : 'r';
+        h += '<div style="padding:3px 0;font-size:11px;border-bottom:1px solid #1a1a1a">' +
+          '<span style="color:#888">#' + (i+1) + '</span> score ' + c.score + '/' + c.maxScore +
+          ' <span class="' + pctCls + '">(' + c.pct + '%)</span>' +
+          ' <span style="color:#555">' + c.details.map(d => (labels[d.key] || d.key) + '=' + fmt[d.key](d.val)).join(' ') + '</span>' +
+          ' <span style="color:#888">rejected: ' + c.filters.join('; ') + '</span>' +
+          '</div>';
+      });
+      h += '</div>';
+    }
+
+    // Worst filters
+    if (data.worstFilters && data.worstFilters.length) {
+      h += '<div class="anal-section"><div class="anal-section-title" style="color:#ff4136">STRICTEST FILTERS</div>';
+      const maxScore = data.worstFilters[0].totalScore;
+      data.worstFilters.forEach(f => {
+        const bar = Math.round(f.totalScore / maxScore * 100);
+        h += '<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:11px">' +
+          '<span style="width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + f.filter + '</span>' +
+          '<div style="flex:1;height:12px;background:#1a1a1a;border-radius:2px"><div style="width:' + bar + '%;height:100%;background:#ff4136;border-radius:2px"></div></div>' +
+          '<span style="color:#888;width:40px;text-align:right">' + f.totalScore + '</span>' +
+          '</div>';
+      });
+      h += '</div>';
+    }
+  }
+
+  // Recommendations (always, not tied to trade data)
   if (data.recommendations && data.recommendations.length) {
-    h += '<div class="anal-section"><div class="anal-section-title" style="color:#00ff41">RECOMMENDATIONS — LOOSEN FILTERS</div>';
-    data.recommendations.forEach(r => {
-      const isPct = r.filter.includes('Holder') || r.filter.includes('Top');
-      const oldVal = r.filter.includes('MCAP') ? '$' + Number(r.current).toLocaleString()
-        : r.filter.includes('Fee') ? r.current + ' SOL'
-        : isPct ? r.current + '%'
-        : r.current;
-      const newVal = r.filter.includes('MCAP') ? '$' + Number(r.suggest).toLocaleString()
-        : r.filter.includes('Fee') ? r.suggest + ' SOL'
-        : isPct ? r.suggest + '%'
-        : r.suggest;
-      h += '<div class="anal-rec" style="font-size:11px">' +
-        '<span class="anal-rec-label">' + r.filter + '</span>' +
-        '<span class="anal-rec-val" style="color:#888;text-decoration:line-through">' + oldVal + '</span>' +
-        ' → ' +
-        '<span class="anal-rec-val" style="color:#00ff41">' + newVal + '</span>' +
-        '<span class="anal-rec-reason">' + r.candidatesLost + ' potential candidates lost</span>' +
-        '</div>';
-    });
-    h += '<div style="padding:6px 0"><div class="swipe-bar" id="swipe-potential"><div class="swipe-track"></div><div class="swipe-thumb">\u00bb</div><div class="swipe-label">SLIDE TO APPLY</div></div></div>';
-    h += '</div>';
-  }
+    h += '<div class="anal-section"><div class="anal-section-title" style="color:#00ff41">REKOMENDASI SETTING <span style="color:#555;font-weight:400;font-size:10px">(geser untuk terapkan)</span></div>';
+      data.recommendations.forEach(r => {
+        const isPct = r.filter.includes('Holder') || r.filter.includes('Top');
+        const oldVal = r.filter.includes('MCAP') ? '$' + Number(r.current).toLocaleString()
+          : r.filter.includes('Fee') ? r.current + ' SOL'
+          : isPct ? r.current + '%'
+          : r.current;
+        const newVal = r.filter.includes('MCAP') ? '$' + Number(r.suggest).toLocaleString()
+          : r.filter.includes('Fee') ? r.suggest + ' SOL'
+          : isPct ? r.suggest + '%'
+          : r.suggest;
+        h += '<div class="anal-rec" style="font-size:11px">' +
+          '<span class="anal-rec-label">' + r.filter + '</span>' +
+          '<span class="anal-rec-val" style="color:#888;text-decoration:line-through">' + oldVal + '</span>' +
+          ' → ' +
+          '<span class="anal-rec-val" style="color:#00ff41;font-weight:700">' + newVal + '</span>' +
+          '<span class="anal-rec-reason">(' + r.candidatesLost + ' kandidat potensial terblokir)</span>' +
+          '</div>';
+      });
+      h += '<div style="padding:6px 0"><div class="swipe-bar" id="swipe-potential"><div class="swipe-track"></div><div class="swipe-thumb">\u00bb</div><div class="swipe-label">GESER UNTUK TERAPKAN</div></div></div>';
+      h += '</div>';
+    }
 
   el.innerHTML = '<div style="text-align:center;padding:0 0 6px 0">' + analysisButtons + '</div>' + label + h;
-  initSwipe('swipe-potential', applyRecs);
+  if (data.recommendations && data.recommendations.length) {
+    initSwipe('swipe-potential', applyRecs);
+  }
 }
 
 function initSwipe(id, onDone) {
@@ -1758,7 +1874,7 @@ function applyAnalysisRecs() { sendRecs(_lastAnalysisRecs); }
 function fetchPotential() {
   const el = document.getElementById('analysisWrap');
   el.innerHTML = '<div class="section-label" style="border-top:1px solid #2a2a2a">POTENTIAL</div><div class="loading" style="padding:10px">Analyzing rejected candidates...</div>';
-  fetch('/api/potential-analysis').then(r => r.json()).then(data => {
+  fetch(`/api/potential-analysis?mode=${modeFilter}`).then(r => r.json()).then(data => {
     renderPotential(data);
   }).catch(err => {
     el.innerHTML = '<div class="section-label" style="border-top:1px solid #2a2a2a">POTENTIAL</div><div class="row"><span class="item" style="color:#888">Unavailable</span></div><div style="text-align:center;padding:6px 0">' + analysisButtons + '</div>';
@@ -1773,8 +1889,9 @@ function fetchData(silent) {
   Promise.all([
     fetch('/api/positions').then(r=>r.json()),
     fetch('/api/strategies').then(r=>r.json()),
-    fetch('/api/settings').then(r=>r.json()).catch(()=>null),
-  ]).then(([positions, strategies, settings]) => {
+    fetch(`/api/settings`).then(r=>r.json()).catch(()=>null),
+    fetch(`/api/summary?mode=${modeFilter}`).then(r=>r.json()),
+  ]).then(([positions, strategies, settings, summary]) => {
     currentSettings = settings;
     document.getElementById('lastUpdated').textContent = new Date().toLocaleString();
     allPositions = positions;
@@ -1883,12 +2000,17 @@ function toggleTrades(id) {
     if (tradeCache[id]) {
       document.getElementById('trade-inner-'+id).innerHTML = tradeCache[id];
     } else if (el.querySelector('h4')) {
-      fetch('/api/positions/'+id+'/trades').then(r=>r.json()).then(trades => {
-        const inner = document.getElementById('trade-inner-'+id);
-        if (!trades.length) { inner.innerHTML = '<h4>No trades</h4>'; tradeCache[id] = inner.innerHTML; return; }
-        inner.innerHTML = '<h4>Trades</h4><table><thead><tr><th>#</th><th>Side</th><th>Time</th><th>Price</th><th>MCAP</th><th>Size</th><th>Reason</th></tr></thead><tbody>'+
-          trades.map(t=>'<tr><td>'+t.id+'</td><td class="'+t.side+'">'+t.side.toUpperCase()+'</td><td>'+(t.at?fmtDateFull(t.at):'-')+'</td><td>'+(t.price!=null?fmtPrice(t.price):'-')+'</td><td>'+(t.mcap!=null?fmtUsd(t.mcap):'-')+'</td><td>'+(t.size_sol!=null?t.size_sol.toFixed(4):'-')+'</td><td>'+(t.reason||'-')+(t.pnlPercent!=null?' ('+t.pnlPercent.toFixed(1)+'%)':'')+'</td></tr>').join('')+
-          '</tbody></table>';
+       fetch('/api/positions/'+id+'/trades').then(r=>r.json()).then(trades => {
+          const inner = document.getElementById('trade-inner-'+id);
+          if (!trades.length) { inner.innerHTML = '<h4>No trades</h4>'; tradeCache[id] = inner.innerHTML; return; }
+          inner.innerHTML = '<h4>Trades</h4><div style="margin-bottom:8px;display:flex;align-items:center;gap:8px;">' +
+            '<input type="checkbox" id="selAllTr_'+id+'" onchange="qsa(\'.trade-cb-'+id+'\').forEach(function(c){c.checked=this.checked},this)" checked style="margin:0">' +
+            '<label for="selAllTr_'+id+'" style="font-size:10px;color:#666;cursor:pointer;">All</label>' +
+            '<button onclick="deleteSelectedTrades('+id+')" style="background:#ff3355;color:#000;border:1px solid #ff3355;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;border-radius:2px;line-height:1.6;">Delete Selected</button>' +
+            '<span style="font-size:10px;color:#555;" id="selCount_'+id+'">('+trades.length+' selected)</span></div>' +
+            '<table><thead><tr><th style="width:26px"></th><th>#</th><th>Side</th><th>Time</th><th>Price</th><th>MCAP</th><th>Size</th><th>Reason</th></tr></thead><tbody>'+
+            trades.map(t=>'<tr><td><input type="checkbox" class="trade-cb-'+id+'" data-id="'+t.id+'" checked onchange="updateSelCount('+id+')"></td><td>'+t.id+'</td><td class="'+t.side+'">'+t.side.toUpperCase()+'</td><td>'+(t.at?fmtDateFull(t.at):'-')+'</td><td>'+(t.price!=null?fmtPrice(t.price):'-')+'</td><td>'+(t.mcap!=null?fmtUsd(t.mcap):'-')+'</td><td>'+(t.size_sol!=null?t.size_sol.toFixed(4):'-')+'</td><td>'+(t.reason||'-')+(t.pnlPercent!=null?' ('+t.pnlPercent.toFixed(1)+'%)':'')+'</td></tr>').join('')+
+            '</tbody></table>';
         tradeCache[id] = inner.innerHTML;
       }).catch(()=>{const err = '<h4>Error loading trades</h4>'; document.getElementById('trade-inner-'+id).innerHTML = err; tradeCache[id] = err;});
     }
@@ -1984,41 +2106,90 @@ function closePosition(id) {
     .then(data => {
       if (data.error) { alert('Failed: ' + data.error); if (btn) { btn.disabled = false; btn.textContent = 'Close'; } return; }
       fetchData();
+      if (btn) { btn.textContent = 'Closed'; }
     })
     .catch(err => {
       alert('Error: ' + err.message);
       if (btn) { btn.disabled = false; btn.textContent = 'Close'; }
     });
 }
-function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-// ── Page password auth ──
-function verifyPassword() {
-  const pwd = document.getElementById('loginPassword').value;
-  document.getElementById('loginError').textContent = '';
-  fetch('/api/verify-password', {
+function deleteTradesFromFilters() {
+  const fromInput = document.getElementById('deleteFromId');
+  const toInput = document.getElementById('deleteToId');
+  const resultEl = document.getElementById('deleteTradeResult');
+  const fromId = parseInt(fromInput.value);
+  const toId = parseInt(toInput.value);
+  resultEl.textContent = '';
+  if (isNaN(fromId) || isNaN(toId) || fromId < 1 || fromId > toId) { resultEl.textContent = 'invalid'; return; }
+  if (!confirm('Delete trades #' + fromId + ' – #' + toId + '?')) return;
+  fetch('/api/trades/delete-range', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password: pwd })
-  }).then(r => {
-    if (!r.ok) throw new Error('Wrong password');
-    sessionStorage.setItem('charon_auth', '1');
-    document.getElementById('loginOverlay').classList.add('hidden');
-    fetchData();
-  }).catch(() => {
-    document.getElementById('loginError').textContent = 'Wrong password';
-    document.getElementById('loginPassword').value = '';
-    document.getElementById('loginPassword').focus();
+    body: JSON.stringify({ startId: fromId, endId: toId })
+  })
+  .then(r => r.ok ? r.json() : r.json().then(d => { throw new Error(d.error); }))
+  .then(res => {
+    resultEl.textContent = res.deletedCount ? 'del ' + res.deletedCount : 'none';
+    resultEl.style.color = res.deletedCount ? '#00ff41' : '#555';
+    fromInput.value = ''; toInput.value = '';
+    setTimeout(() => { resultEl.textContent = ''; resultEl.style.color = '#555'; }, 3000);
+  })
+  .catch(e => { resultEl.textContent = 'err'; resultEl.style.color = '#ff3355'; console.error(e); });
+}
+function qsa(s) { return document.querySelectorAll(s); }
+function updateSelCount(pid) {
+  var el = document.getElementById('selCount_' + pid);
+  if (!el) return;
+  var total = qsa('.trade-cb-' + pid + ':checked').length;
+  el.textContent = '(' + total + ' selected)';
+}
+function deleteSelectedTrades(positionId) {
+  var cbs = qsa('.trade-cb-' + positionId + ':checked');
+  var ids = Array.from(cbs).map(function(cb) { return parseInt(cb.getAttribute('data-id')); });
+  if (!ids.length) { alert('No trades selected'); return; }
+  if (!confirm('Delete ' + ids.length + ' trade(s) for this position? This cannot be undone.')) return;
+  var btn = event.target;
+  btn.disabled = true;
+  btn.textContent = 'Deleting...';
+  fetch('/api/trades/delete-batch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids: ids })
+  })
+  .then(function(r) {
+    if (!r.ok) return r.json().then(function(d) { throw new Error(d.error || 'Delete failed'); });
+    tradeCache[positionId] = null;
+    return fetch('/api/positions/' + positionId + '/trades').then(function(r2) { return r2.json(); });
+  })
+  .then(function(trades) {
+    var inner = document.getElementById('trade-inner-' + positionId);
+    if (!trades || !trades.length) {
+      inner.innerHTML = '<h4>No trades</h4>';
+      tradeCache[positionId] = inner.innerHTML;
+      return;
+    }
+    inner.innerHTML = '<h4>Trades</h4><div style="margin-bottom:8px;display:flex;align-items:center;gap:8px;">' +
+      '<input type="checkbox" id="selAllTr_' + positionId + '" onchange="qsa(\'.trade-cb-' + positionId + '\').forEach(function(c){c.checked=this.checked},this)" checked style="margin:0">' +
+      '<label for="selAllTr_' + positionId + '" style="font-size:10px;color:#666;cursor:pointer;">All</label>' +
+      '<button onclick="deleteSelectedTrades(' + positionId + ')" style="background:#ff3355;color:#000;border:1px solid #ff3355;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;border-radius:2px;line-height:1.6;">Delete Selected</button>' +
+      '<span style="font-size:10px;color:#555;" id="selCount_' + positionId + '">(' + trades.length + ' selected)</span></div>' +
+      '<table><thead><tr><th style="width:26px"></th><th>#</th><th>Side</th><th>Time</th><th>Price</th><th>MCAP</th><th>Size</th><th>Reason</th></tr></thead><tbody>' +
+      trades.map(function(t) {
+        return '<tr><td><input type="checkbox" class="trade-cb-' + positionId + '" data-id="' + t.id + '" checked onchange="updateSelCount(' + positionId + ')"></td><td>' + t.id + '</td><td class="' + t.side + '">' + t.side.toUpperCase() + '</td><td>' + (t.at ? fmtDateFull(t.at) : '-') + '</td><td>' + (t.price != null ? fmtPrice(t.price) : '-') + '</td><td>' + (t.mcap != null ? fmtUsd(t.mcap) : '-') + '</td><td>' + (t.size_sol != null ? t.size_sol.toFixed(4) : '-') + '</td><td>' + (t.reason || '-') + (t.pnlPercent != null ? ' (' + t.pnlPercent.toFixed(1) + '%)' : '') + '</td></tr>';
+      }).join('') +
+      '</tbody></table>';
+    tradeCache[positionId] = inner.innerHTML;
+  })
+  .catch(function(err) {
+    alert('Error: ' + err.message);
+    btn.disabled = false;
+    btn.textContent = 'Delete Selected';
   });
 }
-document.getElementById('loginPassword').addEventListener('keydown', e => {
-  if (e.key === 'Enter') verifyPassword();
-});
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-if (sessionStorage.getItem('charon_auth')) {
-  document.getElementById('loginOverlay').classList.add('hidden');
-  fetchData();
-}
+fetchData();
 </script>
 </body>
 </html>
