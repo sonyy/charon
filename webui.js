@@ -714,73 +714,107 @@ app.get('/api/analysis', (req, res) => {
     // ════════════════════════════════════════════════════════════════
     // TRAILING OPTIMIZATION
     // ════════════════════════════════════════════════════════════════
-    const trailOpt = { activate: null, trailingPct: null };
+    const trailOpt = { activate: null, trailingPct: null, lossSave: null };
 
-    // Hitung peak_pnl_pct untuk tiap closed trade
     const withPeak = analyzed.filter(a => a.size_sol > 0 && a.max_pnl_sol != null);
     const peakPcts = withPeak.map(a => (a.max_pnl_sol / a.size_sol) * 100);
-    const winnersWithPeak = withPeak.filter(a => a.pnl_sol > 0 && a.pnl_percent != null);
 
     if (peakPcts.length >= 5) {
+      // ── ACTIVATE % ANALYSIS ──
       const sortedPeaks = [...peakPcts].sort((a, b) => a - b);
       const p25 = sortedPeaks[Math.floor(sortedPeaks.length * 0.25)];
       const p50 = sortedPeaks[Math.floor(sortedPeaks.length * 0.5)];
       const p75 = sortedPeaks[Math.floor(sortedPeaks.length * 0.75)];
 
-      // Activate distribution: candidate thresholds
       const candidates = [2, 3, 5, 8, 10, 15, 20, 30, 50];
       const activateScores = candidates.map(pct => {
         const activated = withPeak.filter(a => (a.max_pnl_sol / a.size_sol) * 100 >= pct);
         const winRate = activated.length ? activated.filter(a => a.pnl_sol > 0).length / activated.length * 100 : 0;
         return { threshold: pct, count: activated.length, winRate: rnd(winRate) };
       });
-
-      // Cari threshold optimal: minimal 50 trades, win rate tertinggi
       const bestActivate = activateScores.filter(a => a.count >= 50).sort((a, b) => b.winRate - a.winRate)[0]
         || activateScores.filter(a => a.count >= 20).sort((a, b) => b.winRate - a.winRate)[0];
 
-      // Retracement analysis for winners
-      const retracePcts = winnersWithPeak.map(a => {
-        const peak = (a.max_pnl_sol / a.size_sol) * 100;
-        return (a.pnl_percent - peak) / (1 + peak / 100);
-      }).filter(v => v < 0);
-
-      const sortedRetrace = [...retracePcts].sort((a, b) => a - b);
-      const rCount = sortedRetrace.length;
-
       trailOpt.activate = {
-        peakDistribution: {
-          p25: rnd(p25),
-          p50: rnd(p50),
-          p75: rnd(p75),
-        },
+        peakDistribution: { p25: rnd(p25), p50: rnd(p50), p75: rnd(p75) },
         activateScores,
         suggestedActivate: bestActivate ? bestActivate.threshold : null,
-        description: `Aktifkan trailing di +${bestActivate ? bestActivate.threshold : '?'}% (win rate ${bestActivate ? bestActivate.winRate : '?'}% untuk trade yg mencapai level ini). 25% trade punya peak ≤ ${rnd(p25)}%, 50% ≤ ${rnd(p50)}%, 75% ≤ ${rnd(p75)}%.`,
+        description: `Aktifkan trailing di +${bestActivate ? bestActivate.threshold : '?'}% (win rate ${bestActivate ? bestActivate.winRate : '?'}% utk trade yg capai level ini).`,
       };
 
-      if (rCount >= 5) {
-        const rPct25 = sortedRetrace[Math.floor(rCount * 0.25)];
-        const rPct50 = sortedRetrace[Math.floor(rCount * 0.5)];
-        const rPct75 = sortedRetrace[Math.floor(rCount * 0.75)];
+      // ── TRAILING % ANALYSIS (natural retracements from non-trailing winners) ──
+      // Hanya pakai winner yg exit via TP/MANUAL/MAX_HOLD (bukan TRAILING_TP/SL/RUG_GUARD)
+      // biar gak bias oleh setting trailing yg dipakai.
+      const naturalWinners = withPeak.filter(a =>
+        a.pnl_sol > 0 && a.pnl_percent != null
+        && a.exit_reason !== 'TRAILING_TP'
+        && a.exit_reason !== 'SL'
+        && a.exit_reason !== 'RUG_GUARD'
+      );
 
-        const tight = Math.abs(rPct75);
-        const balanced = Math.abs(rPct50);
-        const loose = Math.abs(rPct25);
+      const retracePcts = naturalWinners.map(a => {
+        const peak = (a.max_pnl_sol / a.size_sol) * 100;
+        const ret = (a.pnl_percent - peak) / (1 + peak / 100);
+        return ret;
+      }).filter(v => v < 0);
+
+      // Juga cari survivable retrace dari min_pnl (trade yg sempat turun dari peak lalu naik lagi)
+      const recovWinners = withPeak.filter(a =>
+        a.pnl_sol > 0 && a.pnl_percent != null
+        && a.min_pnl_sol != null && a.min_pnl_sol < a.pnl_sol * 0.5 // min significantly below final
+        && a.max_pnl_sol > a.pnl_sol // peak above final = ada retrace
+      );
+      const recovRetraces = recovWinners.map(a => {
+        const peak = (a.max_pnl_sol / a.size_sol) * 100;
+        const low = (a.min_pnl_sol / a.size_sol) * 100;
+        return (low - peak) / (1 + peak / 100);
+      }).filter(v => v < 0);
+
+      // Gabung retrace natural + recovery retrace, ambil yg paling besar (paling negatif) per trade
+      // Sederhananya: gabung semua retrace dan urutkan
+      const allRetraces = [...retracePcts, ...recovRetraces].sort((a, b) => a - b);
+
+      if (allRetraces.length >= 5) {
+        const rPct25 = allRetraces[Math.floor(allRetraces.length * 0.25)];
+        const rPct50 = allRetraces[Math.floor(allRetraces.length * 0.5)];
+        const rPct75 = allRetraces[Math.floor(allRetraces.length * 0.75)];
 
         trailOpt.trailingPct = {
+          fromNatural: naturalWinners.length,
+          fromRecovery: recovRetraces.length,
           retraceDistribution: {
             p25: rnd(rPct25),
             p50: rnd(rPct50),
             p75: rnd(rPct75),
           },
           suggestions: {
-            tight: rnd(tight),
-            balanced: rnd(balanced),
-            loose: rnd(loose),
+            tight: rnd(Math.abs(rPct75)),
+            balanced: rnd(Math.abs(rPct50)),
+            loose: rnd(Math.abs(rPct25)),
           },
-          description: `Dari ${rCount} closed winners, retracement from peak: 25% ≤ ${rnd(rPct25)}pp, median ${rnd(rPct50)}pp, 75% ≤ ${rnd(rPct75)}pp. Trailing: ketat ${rnd(tight)}%, sedang ${rnd(balanced)}%, longgar ${rnd(loose)}%.`,
+          description: `${allRetraces.length} titik retrace dari ${naturalWinners.length} winner non-trailing + ${recovRetraces.length} recovery. Trailing: ketat ${rnd(Math.abs(rPct75))}%, sedang ${rnd(Math.abs(rPct50))}%, longgar ${rnd(Math.abs(rPct25))}%.`,
         };
+      }
+
+      // ── LOSS SAVE ANALYSIS: trailing berapa utk selamatkan loser ──
+      // Loser yg sempat positif → hitung trailing% yg diperlukan utk exit di breakeven
+      const losersWithPeak = withPeak.filter(a => a.pnl_sol < 0 && a.pnl_percent != null && (a.max_pnl_sol / a.size_sol) * 100 > 5);
+      if (losersWithPeak.length >= 3) {
+        const trailingNeeded = losersWithPeak.map(a => {
+          const peak = (a.max_pnl_sol / a.size_sol) * 100;
+          // trailing yg diperlukan utk exit di 0% (breakeven) = peak / (1 + peak/100)
+          return peak / (1 + peak / 100);
+        }).filter(v => v > 0 && v < 100).sort((a, b) => a - b);
+
+        if (trailingNeeded.length >= 3) {
+          trailOpt.lossSave = {
+            count: trailingNeeded.length,
+            minTrailingNeeded: rnd(trailingNeeded[0]),
+            medianTrailingNeeded: rnd(trailingNeeded[Math.floor(trailingNeeded.length * 0.5)]),
+            maxTrailingNeeded: rnd(trailingNeeded[trailingNeeded.length - 1]),
+            description: `${trailingNeeded.length} loser sempat profit. Trailing ${rnd(trailingNeeded[Math.floor(trailingNeeded.length * 0.5)])}% (median) cukup utk cut di breakeven.`,
+          };
+        }
       }
     }
 

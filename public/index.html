@@ -1695,17 +1695,23 @@ function renderAnalysis(data) {
     }
     if (to.trailingPct) {
       const t = to.trailingPct;
-      h += '<div class="anal-rec"><span class="anal-rec-label">Trailing Ketat</span>' +
+      h += '<div class="anal-rec" style="border-left-color:#ffd700"><span class="anal-rec-label">Trailing Ketat</span>' +
         '<span class="anal-rec-val">' + t.suggestions.tight + '%</span>' +
-        '<span class="anal-rec-reason">25% winners retrace ≤' + t.retraceDistribution.p25 + 'pp (75% aman dari early exit)</span></div>';
-      h += '<div class="anal-rec"><span class="anal-rec-label">Trailing Sedang</span>' +
+        '<span class="anal-rec-reason">Dari ' + t.fromNatural + ' winner non-trailing + ' + t.fromRecovery + ' recovery dips</span></div>';
+      h += '<div class="anal-rec" style="border-left-color:#ffd700"><span class="anal-rec-label">Trailing Sedang</span>' +
         '<span class="anal-rec-val">' + t.suggestions.balanced + '%</span>' +
-        '<span class="anal-rec-reason">Median retrace ' + t.retraceDistribution.p50 + 'pp (50% aman)</span></div>';
-      h += '<div class="anal-rec"><span class="anal-rec-label">Trailing Longgar</span>' +
+        '<span class="anal-rec-reason">Median retrace ' + t.retraceDistribution.p50 + 'pp</span></div>';
+      h += '<div class="anal-rec" style="border-left-color:#ffd700"><span class="anal-rec-label">Trailing Longgar</span>' +
         '<span class="anal-rec-val">' + t.suggestions.loose + '%</span>' +
-        '<span class="anal-rec-reason">75% winners retrace ≤' + t.retraceDistribution.p75 + 'pp (25% aman)</span></div>';
+        '<span class="anal-rec-reason">75% retrace ≤' + t.retraceDistribution.p75 + 'pp</span></div>';
     }
-    if (!to.activate && !to.trailingPct) {
+    if (to.lossSave) {
+      const ls = to.lossSave;
+      h += '<div class="anal-rec"><span class="anal-rec-label">Trailing utk Save Loser</span>' +
+        '<span class="anal-rec-val">' + ls.medianTrailingNeeded + '%</span>' +
+        '<span class="anal-rec-reason">' + ls.description + '</span></div>';
+    }
+    if (!to.activate && !to.trailingPct && !to.lossSave) {
       h += '<div class="anal-rec"><span class="anal-rec-reason" style="color:#555">Insufficient data for trailing optimization</span></div>';
     }
     h += '</div></div>';
