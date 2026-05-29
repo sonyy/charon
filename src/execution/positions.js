@@ -172,6 +172,13 @@ export async function refreshPosition(position, { autoExit = true, jupiterPnl = 
     }
   }
 
+  // Rug guard: catastrophic drop from peak fires regardless of trailing-armed state.
+  // Takes precedence over SL when both would fire.
+  const rugGuardDropPct = Number(strat?.rug_guard_drop_pct ?? 0);
+  if (!exitReason && rugGuardDropPct > 0 && highWaterMcap > 0 && trailDrop <= -rugGuardDropPct) {
+    exitReason = 'RUG_GUARD';
+  }
+
   // Standard exit checks
   if (!exitReason) {
     if (slHit) exitReason = 'SL';

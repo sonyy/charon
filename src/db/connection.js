@@ -251,6 +251,10 @@ export function initDb() {
     trending_max_bundler_rate: process.env.TRENDING_MAX_BUNDLER_RATE || '0.5',
     redeploy_cooldown_min: process.env.REDEPLOY_COOLDOWN_MIN || '30',
     min_organic_score: process.env.MIN_ORGANIC_SCORE || '40',
+    rug_guard_drop_pct: '50',
+    skip_bonding_band_min: '80',
+    skip_bonding_band_max: '99',
+    max_jup_bundler_ath_pct: '5',
     filtered_coin_alerts: 'true',
   };
   const insert = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
@@ -290,6 +294,11 @@ export function initDb() {
     max_hold_ms: 0,
     use_llm: true,
     llm_min_confidence: 50,
+    min_organic_score: 40,
+    skip_bonding_band_min: 80,
+    skip_bonding_band_max: 99,
+    rug_guard_drop_pct: 50,
+    max_jup_bundler_ath_pct: 5,
   }), ts);
 
   stratInsert.run('dip_buy', 'Dip Buy', 0, JSON.stringify({
@@ -322,6 +331,11 @@ export function initDb() {
     max_hold_ms: 0,
     use_llm: true,
     llm_min_confidence: 60,
+    min_organic_score: 40,
+    skip_bonding_band_min: 80,
+    skip_bonding_band_max: 99,
+    rug_guard_drop_pct: 50,
+    max_jup_bundler_ath_pct: 5,
   }), ts);
 
   stratInsert.run('smart_money', 'Smart Money', 0, JSON.stringify({
@@ -354,6 +368,11 @@ export function initDb() {
     max_hold_ms: 0,
     use_llm: true,
     llm_min_confidence: 70,
+    min_organic_score: 40,
+    skip_bonding_band_min: 80,
+    skip_bonding_band_max: 99,
+    rug_guard_drop_pct: 50,
+    max_jup_bundler_ath_pct: 5,
   }), ts);
 
   stratInsert.run('degen', 'Degen', 0, JSON.stringify({
@@ -386,6 +405,11 @@ export function initDb() {
     max_hold_ms: 0,
     use_llm: false,
     llm_min_confidence: 0,
+    min_organic_score: 40,
+    skip_bonding_band_min: 80,
+    skip_bonding_band_max: 99,
+    rug_guard_drop_pct: 50,
+    max_jup_bundler_ath_pct: 5,
   }), ts);
 }
 

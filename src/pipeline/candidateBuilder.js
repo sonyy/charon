@@ -45,9 +45,37 @@ export function filterCandidate(candidate) {
   const bundlerRate = Number(candidate.trending?.bundler_rate ?? 0);
   const organicScore = Number(candidate.trending?.hot_level ?? candidate.metrics.trendingHotLevel ?? 0);
 
+  // Jupiter organic score — only enforce when jupiterAsset is available
   const minOrganic = numSetting('min_organic_score', 0);
-  if (minOrganic > 0 && organicScore > 0 && organicScore < minOrganic) {
+  if (minOrganic > 0 && candidate.jupiterAsset) {
+    const jupOrganic = Number(candidate.jupiterAsset.organicScore);
+    if (Number.isFinite(jupOrganic) && jupOrganic < minOrganic) {
+      failures.push(`organic score: ${jupOrganic.toFixed(1)} < ${minOrganic}`);
+    }
+  } else if (minOrganic > 0 && organicScore > 0 && organicScore < minOrganic) {
     failures.push(`organic score: ${organicScore} < ${minOrganic}`);
+  }
+
+  // Bonding-curve danger band — skip tokens whose bondingCurve % is inside the
+  // configured [min, max] inclusive range. Both endpoints must be > 0 to enable,
+  // so partial config doesn't accidentally skip all pre-graduated tokens.
+  const bandMin = Number(strat.skip_bonding_band_min ?? 0);
+  const bandMax = Number(strat.skip_bonding_band_max ?? 0);
+  if (bandMin > 0 && bandMax >= bandMin && candidate.jupiterAsset) {
+    const bonding = Number(candidate.jupiterAsset.bondingCurve);
+    if (Number.isFinite(bonding) && bonding >= bandMin && bonding <= bandMax) {
+      failures.push(`bonding curve: ${bonding}% in skip band [${bandMin}-${bandMax}]`);
+    }
+  }
+
+  // Jupiter bundler ATH holding — rejects tokens whose bundler cohort ever
+  // controlled more than the threshold % of supply.
+  const maxBundlerAth = Number(strat.max_jup_bundler_ath_pct ?? 0);
+  if (maxBundlerAth > 0) {
+    const ath = Number(candidate.jupiterAsset?.audit?.bundlerStats?.holdingPctATH);
+    if (Number.isFinite(ath) && ath > maxBundlerAth) {
+      failures.push(`bundler ATH: ${ath.toFixed(2)}% > ${maxBundlerAth}%`);
+    }
   }
 
   // Fee claim check

@@ -494,8 +494,11 @@ header .title span { color: #666; }
 .anal-bests { display:flex; flex-wrap:wrap; gap:2px 16px; font-size:11px; line-height:1.6; }
 .anal-best { white-space:nowrap; }
 .anal-best-label { color:#888; }
-.anal-best-val { color:#ccc; font-weight:bold; }
-.anal-best-info { color:#555; font-size:10px; }
+.anal-best-val { color:#00ff41; font-weight:bold; }
+.anal-best-info { color:#00ff41; font-size:10px; opacity:0.7; }
+.anal-exits { display:flex; flex-wrap:wrap; gap:2px 12px; font-size:11px; color:#888; line-height:1.6; }
+.anal-exit { white-space:nowrap; }
+.anal-exit-name { color:#aaa; font-weight:bold; }
 .anal-dim { color:#555; font-size:10px; }
 .anal-mcaps { font-size:11px; line-height:1.6; }
 
@@ -1564,7 +1567,7 @@ function renderAnalysis(data) {
 
   // ── RANGE ──
   if (data.biggestWin || data.biggestLoss) {
-    h += '<div class="anal-section"><div class="anal-section-title">RANGE</div><div class="anal-bests">' +
+    h += '<div class="anal-section"><div class="anal-section-title" style="color:#00ff41">RANGE</div><div class="anal-bests">' +
       (data.biggestWin ? '<span class="anal-best"><span class="anal-best-label">Biggest Win</span> <span class="anal-best-val g">' + fmt(data.biggestWin) + '</span></span>' : '') +
       (data.biggestLoss ? '<span class="anal-best"><span class="anal-best-label">Biggest Loss</span> <span class="anal-best-val r">' + fmt(data.biggestLoss) + '</span></span>' : '') +
       (data.avgDurationWin != null ? '<span class="anal-best"><span class="anal-best-label">Avg Hold (W)</span> <span class="anal-best-val">' + data.avgDurationWin + 'h</span></span>' : '') +
@@ -1577,13 +1580,14 @@ function renderAnalysis(data) {
     const rows = data.exitBreakdown.map(e =>
       '<span class="anal-exit"><span class="anal-exit-name">' + e.reason + '</span> ' + num(e.count) + ' (' + pct(e.pct) + ') \u00b7 PnL ' + fmt(e.totalPnl) + '</span>'
     ).join(' ');
-    h += '<div class="anal-section"><div class="anal-section-title">EXITS</div><div class="anal-exits">' + rows + '</div></div>';
+
+    h += '<div class="anal-section"><div class="anal-section-title" style="color:#00ff41">EXITS</div><div class="anal-exits">' + rows + '</div></div>';
   }
 
   // ── BEST PARAMS (dynamic from backend) ──
   if (data.bestParams && data.bestParams.length) {
-    h += '<div class="anal-section"><div class="anal-section-title">BEST PARAMS</div><div class="anal-bests">' +
-      data.bestParams.map(b => '<span class="anal-best"><span class="anal-best-label">' + b.label + '</span> <span class="anal-best-val">' + b.value + '</span> <span class="anal-best-info">WR ' + pct(b.wr) + ' (' + num(b.count) + ' pos)</span></span>').join('') +
+    h += '<div class="anal-section"><div class="anal-section-title" style="color:#00ff41">BEST PARAMS</div><div class="anal-recs">' +
+      data.bestParams.map(b => '<div class="anal-rec"><span class="anal-rec-label">' + b.label + '</span><span class="anal-rec-val">' + b.value + '</span><span class="anal-rec-reason">WR ' + pct(b.wr) + ' (' + num(b.count) + ' pos)</span></div>').join('') +
       '</div></div>';
   }
 
@@ -1612,6 +1616,71 @@ function renderAnalysis(data) {
       }).join('') +
       '<div style="padding:6px 0"><div class="swipe-bar" id="swipe-analysis"><div class="swipe-track"></div><div class="swipe-thumb">\u00bb</div><div class="swipe-label">SLIDE TO APPLY</div></div></div>' +
       '</div></div>';
+  }
+
+  // ── LOSS ANALYSIS ──
+  if (data.lossAnalysis && data.lossAnalysis.count >= 3) {
+    const la = data.lossAnalysis;
+    h += '<div class="anal-section"><div class="anal-section-title" style="color:#ff4136">LOSS ANALYSIS \u2264' + la.threshold + '%' +
+      ' <span style="color:#555;font-weight:400;font-size:10px">' + la.count + ' trades</span></div>' +
+      '<div class="anal-recs">';
+    if (la.commonConditions && la.commonConditions.length) {
+      la.commonConditions.forEach(c => {
+        h += '<div class="anal-rec"><span class="anal-rec-label">' + c.label + '</span>' +
+          '<span class="anal-rec-val">' + c.direction + ' ' + c.formatted + '</span>' +
+          '<span class="anal-rec-reason">' + c.captureCount + '/' + la.count + ' loss (' + c.capturePct + '%) vs win ' + c.opposingCapturePct + '% \u0394' + c.diff + 'pp</span></div>';
+      });
+    }
+    h += '</div>';
+    if (la.recommendations && la.recommendations.length) {
+      h += '<div class="anal-section-title" style="color:#00ff41;font-size:10px;margin-top:4px">TIGHTEN RECS</div><div class="anal-recs">';
+      la.recommendations.forEach(r => {
+        h += '<div class="anal-rec"><span class="anal-rec-label">' + r.metric + '</span>' +
+          '<span class="anal-rec-val" style="color:#888;text-decoration:line-through">' + r.current + '</span>' +
+          ' \u2192 <span class="anal-rec-val">' + r.suggest + '</span>' +
+          '<span class="anal-rec-reason">' + r.reason + '</span></div>';
+      });
+      h += '</div>';
+    }
+    h += '</div>';
+  }
+
+  // ── WIN ANALYSIS ──
+  if (data.winAnalysis && data.winAnalysis.count >= 3) {
+    const wa = data.winAnalysis;
+    h += '<div class="anal-section"><div class="anal-section-title" style="color:#00ff41">WIN ANALYSIS \u2265' + wa.threshold + '%' +
+      ' <span style="color:#555;font-weight:400;font-size:10px">' + wa.count + ' trades</span></div>' +
+      '<div class="anal-recs">';
+    if (wa.commonConditions && wa.commonConditions.length) {
+      wa.commonConditions.forEach(c => {
+        h += '<div class="anal-rec"><span class="anal-rec-label">' + c.label + '</span>' +
+          '<span class="anal-rec-val">' + c.direction + ' ' + c.formatted + '</span>' +
+          '<span class="anal-rec-reason">' + c.captureCount + '/' + wa.count + ' win (' + c.capturePct + '%) vs loss ' + c.opposingCapturePct + '% \u0394' + c.diff + 'pp</span></div>';
+      });
+    }
+    h += '</div></div>';
+  }
+
+  // ── SL OPTIMIZATION ──
+  if (data.slOptimization) {
+    const so = data.slOptimization;
+    h += '<div class="anal-section"><div class="anal-section-title" style="color:#00ff41">SL OPTIMIZATION</div><div class="anal-recs">';
+    if (so.slByProfit) {
+      const p = so.slByProfit;
+      h += '<div class="anal-rec"><span class="anal-rec-label">SL by Profit</span>' +
+        '<span class="anal-rec-val">' + p.slUpperBound + '%</span>' +
+        '<span class="anal-rec-reason">' + p.count + ' recovered (terdalam ' + p.lowestFloatingPct + '%, median ' + p.medianFloatingPct + '%)<br>' + p.boundDesc + '</span></div>';
+    }
+    if (so.slByLoss) {
+      const s = so.slByLoss;
+      h += '<div class="anal-rec"><span class="anal-rec-label">SL by Loss</span>' +
+        '<span class="anal-rec-val">' + s.slUpperBound + '%</span>' +
+        '<span class="anal-rec-reason">' + s.count + ' stale >24h (terbaik ' + s.floatLossMax + '%, terburuk ' + s.floatLossMin + '%)<br>' + s.boundDesc + '</span></div>';
+    }
+    if (!so.slByProfit && !so.slByLoss) {
+      h += '<div class="anal-rec"><span class="anal-rec-reason" style="color:#555">Insufficient data for SL optimization</span></div>';
+    }
+    h += '</div></div>';
   }
 
   el.innerHTML = '<div style="text-align:center;padding:0 0 6px 0">' + analysisButtons + '</div>' + label + h;

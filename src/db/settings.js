@@ -87,5 +87,7 @@ function defaultStrategy() {
     tp_percent: 50, sl_percent: -25, trailing_enabled: true, trailing_percent: 20,
     partial_tp: false, partial_tp_at_percent: 0, partial_tp_sell_percent: 0,
     max_hold_ms: 0, use_llm: true, llm_min_confidence: 50,
+    min_organic_score: 0, skip_bonding_band_min: 0, skip_bonding_band_max: 0,
+    rug_guard_drop_pct: 50, max_jup_bundler_ath_pct: 5,
   };
 }

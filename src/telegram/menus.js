@@ -108,6 +108,11 @@ export const strategyNumericLabels = {
   partial_tp_at_percent: 'partial TP trigger percent',
   partial_tp_sell_percent: 'partial TP sell percent',
   max_hold_ms: 'maximum hold milliseconds',
+  min_organic_score: 'minimum Jupiter organic score (0-100, 0 = off)',
+  skip_bonding_band_min: 'lower edge of bonding-curve skip band % (0 = off)',
+  skip_bonding_band_max: 'upper edge of bonding-curve skip band % (0 = off; e.g. 99 to skip 80-99)',
+  rug_guard_drop_pct: 'emergency exit if mcap drops this % from peak (0 = off)',
+  max_jup_bundler_ath_pct: 'max Jupiter bundler ATH supply % (0 = off; e.g. 5 to skip bundler-heavy tokens)',
 };
 
 export function filtersKeyboard() {
@@ -232,6 +237,7 @@ export function strategyMenuText() {
     strat.max_ath_distance_pct < 0 ? `Max ATH distance: ${strat.max_ath_distance_pct}%` : null,
     strat.partial_tp ? `Partial TP: ${strat.partial_tp_sell_percent}% at ${fmtPct(strat.partial_tp_at_percent)}` : null,
     strat.max_hold_ms > 0 ? `Max hold: ${Math.round(strat.max_hold_ms / 60000)}m` : null,
+    strat.rug_guard_drop_pct > 0 ? `Rug guard: ${fmtPct(strat.rug_guard_drop_pct)} drop from peak` : null,
     strat.use_llm ? `LLM: yes (min ${strat.llm_min_confidence}%)` : 'LLM: no (rule-based)',
     '',
     ...all.map(s => `${s.enabled ? '▶' : '○'} ${s.name}`),
@@ -308,6 +314,18 @@ export function strategyKeyboard() {
     ],
     [
       { text: `Partial At ${strat.partial_tp_at_percent}%`, callback_data: 'stratinput:partial_tp_at_percent' },
+    ],
+    [{ text: `── Rug Guard ──`, callback_data: 'noop' }],
+    [
+      { text: `Rug Drop c:${strat.rug_guard_drop_pct}% r:50%`, callback_data: 'stratinput:rug_guard_drop_pct' },
+    ],
+    [{ text: `── Jupiter Filters ──`, callback_data: 'noop' }],
+    [
+      { text: `Organic c:${strat.min_organic_score} r:40`, callback_data: 'stratinput:min_organic_score' },
+      { text: `Bond c:${strat.skip_bonding_band_min}-${strat.skip_bonding_band_max} r:80-99`, callback_data: 'stratinput:skip_bonding_band_max' },
+    ],
+    [
+      { text: `Bundler ATH c:${strat.max_jup_bundler_ath_pct}% r:5%`, callback_data: 'stratinput:max_jup_bundler_ath_pct' },
     ],
   ];
   return {

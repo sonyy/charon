@@ -294,7 +294,7 @@ app.get('/api/analysis', (req, res) => {
     const modeParams = mode ? [mode] : [];
 
     const rows = db.prepare(`
-      SELECT p.pnl_sol, p.exit_reason, p.entry_mcap, p.size_sol, p.sl_percent, p.tp_percent, p.trailing_percent, p.opened_at_ms, p.closed_at_ms,
+      SELECT p.pnl_sol, p.pnl_percent, p.exit_reason, p.entry_mcap, p.size_sol, p.min_pnl_sol, p.sl_percent, p.tp_percent, p.trailing_percent, p.opened_at_ms, p.closed_at_ms,
              c.candidate_json
       FROM dry_run_positions p
       LEFT JOIN candidates c ON p.candidate_id = c.id
@@ -312,9 +312,11 @@ app.get('/api/analysis', (req, res) => {
       const top10 = holders.holders.slice(0, 10).reduce((s, h) => s + (h.percent || 0), 0);
       return {
         pnl_sol: fmt(r.pnl_sol),
+        pnl_percent: fmt(r.pnl_percent),
         exit_reason: r.exit_reason || 'unknown',
         entry_mcap: fmt(r.entry_mcap),
         size_sol: fmt(r.size_sol),
+        min_pnl_sol: fmt(r.min_pnl_sol),
         sl_percent: fmt(r.sl_percent),
         tp_percent: fmt(r.tp_percent),
         trailing_percent: fmt(r.trailing_percent),
@@ -545,6 +547,160 @@ app.get('/api/analysis', (req, res) => {
     // ── Avg entry MCAP ──
     const avgEntryMcap = rnd(avg(analyzed, a => a.entry_mcap));
 
+    // ════════════════════════════════════════════════════════════════
+    // LOSS vs WIN ANALYSIS (compare distributions)
+    // ════════════════════════════════════════════════════════════════
+    const lossThreshold = -30;
+    const winThreshold = 30;
+    const lossTrades = analyzed.filter(a => a.pnl_percent != null && a.pnl_percent <= lossThreshold);
+    const winTrades = analyzed.filter(a => a.pnl_percent != null && a.pnl_percent >= winThreshold);
+    const lossAnalysis = { threshold: lossThreshold, count: lossTrades.length, commonConditions: [], recommendations: [] };
+    const winAnalysis = { threshold: winThreshold, count: winTrades.length, commonConditions: [], recommendations: [] };
+
+    function analyzeGroup(trades, target, opposing, analysis, isLoss) {
+      if (trades.length < 3) return;
+      const fields = [
+        { key: 'liquidityUsd', label: 'Liq', dirLow: 'le', dirHigh: 'ge' },
+        { key: 'holderCount', label: 'Holders', dirLow: 'le', dirHigh: 'ge' },
+        { key: 'top10Pct', label: 'Top10%', dirLow: 'ge', dirHigh: 'le' },
+        { key: 'trendingVolumeUsd', label: 'Volume', dirLow: 'le', dirHigh: 'ge' },
+        { key: 'trendingSwaps', label: 'Swaps', dirLow: 'le', dirHigh: 'ge' },
+      ];
+      const fmt = (key, v) => {
+        if (key === 'liquidityUsd' || key === 'trendingVolumeUsd') return v >= 1000 ? '$'+(v/1000).toFixed(0)+'K' : '$'+v.toFixed(0);
+        if (key === 'top10Pct') return v.toFixed(1)+'%';
+        return String(v);
+      };
+      const configKeyMap = {
+        'Liq': { key: 'min_liquidity_usd', isMax: false },
+        'Holders': { key: 'min_holders', isMax: false },
+        'Top10%': { key: 'max_top10_holder_percent', isMax: true },
+        'Volume': { key: 'trending_min_volume_usd', isMax: false },
+        'Swaps': { key: 'trending_min_swaps', isMax: false },
+      };
+
+      for (const f of fields) {
+        const tVals = trades.map(a => a[f.key]).filter(v => v != null && Number.isFinite(v));
+        const oVals = opposing.map(a => a[f.key]).filter(v => v != null && Number.isFinite(v));
+        if (!tVals.length) continue;
+
+        // Loss analysis: test "bad" direction (dirLow). Win analysis: test "good" direction (dirHigh)
+        const testDirs = isLoss ? ['low'] : ['high'];
+        for (const dir of testDirs) {
+          const d = dir === 'low' ? f.dirLow : f.dirHigh;
+          const allVals = [...tVals].sort((a, b) => a - b);
+
+          // Try thresholds at multiple percentiles (50, 60, 70, 75, 80, 90)
+          let best = { diff: -Infinity, thresh: null, tHit: 0, tPct: 0, oHit: 0, oPct: 0 };
+          for (const pct of [50, 60, 70, 75, 80, 90]) {
+            const idx = Math.floor(allVals.length * pct / 100);
+            const thresh = allVals[Math.min(idx, allVals.length - 1)];
+            const tHit = tVals.filter(v => d === 'le' ? v <= thresh : v >= thresh).length;
+            const tPct = tHit / tVals.length * 100;
+            if (tPct < 55 || tHit < 2) continue;
+            const oHit = oVals.length ? oVals.filter(v => d === 'le' ? v <= thresh : v >= thresh).length : 0;
+            const oPct = oVals.length ? oHit / oVals.length * 100 : 0;
+            const diff = tPct - oPct;
+            if (diff > best.diff) { best = { diff, thresh, tHit, tPct, oHit, oPct }; }
+          }
+
+          if (best.diff >= 10 && best.thresh != null) {
+            analysis.commonConditions.push({
+              field: f.key,
+              label: f.label,
+              direction: d === 'le' ? '\u2264' : '\u2265',
+              threshold: best.thresh,
+              formatted: fmt(f.key, best.thresh),
+              captureCount: best.tHit,
+              capturePct: rnd(best.tPct),
+              opposingCapturePct: rnd(best.oPct),
+              diff: rnd(best.diff),
+            });
+
+            // Generate config recommendation (only for loss analysis)
+            const cfgKey = configKeyMap[f.label];
+            if (cfgKey && isLoss) {
+              const curVal = activeCfg[cfgKey.key];
+              let suggest;
+              if (cfgKey.isMax) {
+                suggest = Math.min(curVal ?? 100, best.thresh);
+              } else {
+                suggest = Math.max(curVal ?? 0, best.thresh);
+              }
+              if (suggest !== curVal && suggest > 0) {
+                analysis.recommendations.push({
+                  metric: f.label,
+                  current: curVal,
+                  suggest,
+                  reason: `${best.tHit}/${trades.length} loss (${rnd(best.tPct)}%) vs ${best.oHit}/${opposing.length} win (${rnd(best.oPct)}%) punya ${f.label} ${d === 'le' ? '\u2264' : '\u2265'} ${fmt(f.key, best.thresh)}`,
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+
+    analyzeGroup(lossTrades, lossTrades, winTrades, lossAnalysis, true);
+    analyzeGroup(winTrades, winTrades, lossTrades, winAnalysis, false);
+
+    // ════════════════════════════════════════════════════════════════
+    // SL OPTIMIZATION
+    // ════════════════════════════════════════════════════════════════
+    const slOpt = { slByProfit: null, slByLoss: null };
+
+    // SL BY PROFIT: closed positions yg sempat floating loss (min_pnl_sol < 0) tapi akhirnya profit (pnl_sol > 0)
+    // floating loss terendah (paling negatif) = batas atas SL. SL sebaiknya tidak lebih rendah dari itu,
+    // agar posisi yg masih bisa balik profit tidak terpotong.
+    const recoveredRows = db.prepare(`
+      SELECT min_pnl_sol, size_sol, pnl_percent, pnl_sol, symbol
+      FROM dry_run_positions
+      WHERE status = 'closed' AND min_pnl_sol IS NOT NULL AND min_pnl_sol < 0 AND pnl_sol > 0
+        AND size_sol > 0
+    `).all();
+
+    if (recoveredRows.length > 0) {
+      const minPcts = recoveredRows.map(r => r.min_pnl_sol / r.size_sol * 100);
+      const lowestMinPct = Math.min(...minPcts);
+      const highestMinPct = Math.max(...minPcts);
+      const sortedPcts = [...minPcts].sort((a, b) => a - b);
+      const p50 = sortedPcts[Math.floor(sortedPcts.length * 0.5)];
+
+      slOpt.slByProfit = {
+        count: recoveredRows.length,
+        lowestFloatingPct: rnd(lowestMinPct),
+        highestFloatingPct: rnd(highestMinPct),
+        medianFloatingPct: rnd(p50),
+        slUpperBound: rnd(lowestMinPct),
+        boundDesc: `SL jangan lebih rendah dari ${rnd(lowestMinPct)}% (recovered trade terdalam)`,
+      };
+    }
+
+    // SL BY LOSS: open positions > 24 jam dgn floating loss (current_pnl_sol < 0) — dianggap tdk akan balik profit
+    // floating loss terbesar (paling kecil % kerugian) = batas atas SL. SL sebaiknya tidak lebih kecil dari itu,
+    // agar posisi yg tidak akan balik dipotong sebelum rugi lebih besar.
+    const staleRows = db.prepare(`
+      SELECT current_pnl_percent, current_pnl_sol, size_sol, opened_at_ms, symbol
+      FROM dry_run_positions
+      WHERE status = 'open' AND current_pnl_sol < 0 AND (? - opened_at_ms) > 86400000
+      ORDER BY current_pnl_percent DESC
+    `).all(Date.now());
+
+    if (staleRows.length > 0) {
+      const curPcts = staleRows.map(r => r.current_pnl_percent).filter(v => v != null && v < 0);
+      if (curPcts.length > 0) {
+        const highestCurPct = Math.max(...curPcts);
+        const lowestCurPct = Math.min(...curPcts);
+        slOpt.slByLoss = {
+          count: staleRows.length,
+          floatLossMax: rnd(highestCurPct),
+          floatLossMin: rnd(lowestCurPct),
+          slUpperBound: rnd(highestCurPct),
+          boundDesc: `SL jangan lebih kecil dari ${rnd(highestCurPct)}% (stale >24h, loss terkecil)`,
+        };
+      }
+    }
+
     res.json({
       total,
       winRate: rnd(winRate),
@@ -573,6 +729,9 @@ app.get('/api/analysis', (req, res) => {
       biggestLoss,
       avgDurationWin: dur(wins),
       avgDurationLoss: dur(losses),
+      lossAnalysis,
+      winAnalysis,
+      slOptimization: slOpt,
     });
   } catch (err) {
     console.error('Analysis error:', err);
@@ -1048,6 +1207,7 @@ const recMap = {
   'Min MCAP': 'min_mcap_usd',
   'Max MCAP': 'max_mcap_usd',
   'Max Top20': 'max_top20_holder_percent',
+  'Max Top10': 'max_top10_holder_percent',
   'Min Vol': 'trending_min_volume_usd',
   'Min Swaps': 'trending_min_swaps',
   'Min Liq': 'min_liquidity_usd',
