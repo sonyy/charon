@@ -1028,11 +1028,11 @@ body.auth-shown .login-overlay { display: none; }
       <th onclick="sortBy('size_sol')">Size <span class="sort" id="sort-size_sol">▾</span></th>
       <th onclick="sortBy('entry_price')">Entry <span class="sort" id="sort-entry_price">▾</span></th>
       <th onclick="sortBy('exit_price')">Exit <span class="sort" id="sort-exit_price">▾</span></th>
-      <th onclick="sortBy('pnl_sol')">r.PnL <span class="sort" id="sort-pnl_sol">▾</span></th>
+      <th onclick="sortBy('pnl_percent')">r.PnL <span class="sort" id="sort-pnl_percent">▾</span></th>
       <th>Act</th>
-      <th onclick="sortBy('current_pnl_sol')">u.PnL <span class="sort" id="sort-current_pnl_sol">▾</span></th>
-      <th onclick="sortBy('max_pnl_sol')">u.Max <span class="sort" id="sort-max_pnl_sol">▾</span></th>
-      <th onclick="sortBy('min_pnl_sol')">u.Min <span class="sort" id="sort-min_pnl_sol">▾</span></th>
+      <th onclick="sortBy('current_pnl_percent')">u.PnL <span class="sort" id="sort-current_pnl_percent">▾</span></th>
+      <th onclick="sortBy('_max_pnl_pct')">u.Max <span class="sort" id="sort-_max_pnl_pct">▾</span></th>
+      <th onclick="sortBy('_min_pnl_pct')">u.Min <span class="sort" id="sort-_min_pnl_pct">▾</span></th>
       <th>Reason</th>
       <th onclick="sortBy('opened_at_ms')">Opened <span class="sort" id="sort-opened_at_ms">▾</span></th>
       <th onclick="sortBy('closed_at_ms')">Closed <span class="sort" id="sort-closed_at_ms">▾</span></th>
@@ -1675,10 +1675,38 @@ function renderAnalysis(data) {
       const s = so.slByLoss;
       h += '<div class="anal-rec"><span class="anal-rec-label">SL by Loss</span>' +
         '<span class="anal-rec-val">' + s.slUpperBound + '%</span>' +
-        '<span class="anal-rec-reason">' + s.count + ' stale >24h (terbaik ' + s.floatLossMax + '%, terburuk ' + s.floatLossMin + '%)<br>' + s.boundDesc + '</span></div>';
+        '<span class="anal-rec-reason">' + s.staleCount + ' stale >24h + ' + s.bigLossCount + ' closed <-30% (loss terkecil ' + s.highestLossPct + '%, terbesar ' + s.lowestLossPct + '%)<br>' + s.boundDesc + '</span></div>';
     }
     if (!so.slByProfit && !so.slByLoss) {
       h += '<div class="anal-rec"><span class="anal-rec-reason" style="color:#555">Insufficient data for SL optimization</span></div>';
+    }
+    h += '</div></div>';
+  }
+
+  // ── TRAILING OPTIMIZATION ──
+  if (data.trailingOptimization) {
+    const to = data.trailingOptimization;
+    h += '<div class="anal-section"><div class="anal-section-title" style="color:#00ff41">TRAILING OPTIMIZATION</div><div class="anal-recs">';
+    if (to.activate) {
+      const a = to.activate;
+      h += '<div class="anal-rec"><span class="anal-rec-label">Activate %</span>' +
+        '<span class="anal-rec-val">' + a.suggestedActivate + '%</span>' +
+        '<span class="anal-rec-reason">' + a.description + '</span></div>';
+    }
+    if (to.trailingPct) {
+      const t = to.trailingPct;
+      h += '<div class="anal-rec"><span class="anal-rec-label">Trailing Ketat</span>' +
+        '<span class="anal-rec-val">' + t.suggestions.tight + '%</span>' +
+        '<span class="anal-rec-reason">25% winners retrace ≤' + t.retraceDistribution.p25 + 'pp (75% aman dari early exit)</span></div>';
+      h += '<div class="anal-rec"><span class="anal-rec-label">Trailing Sedang</span>' +
+        '<span class="anal-rec-val">' + t.suggestions.balanced + '%</span>' +
+        '<span class="anal-rec-reason">Median retrace ' + t.retraceDistribution.p50 + 'pp (50% aman)</span></div>';
+      h += '<div class="anal-rec"><span class="anal-rec-label">Trailing Longgar</span>' +
+        '<span class="anal-rec-val">' + t.suggestions.loose + '%</span>' +
+        '<span class="anal-rec-reason">75% winners retrace ≤' + t.retraceDistribution.p75 + 'pp (25% aman)</span></div>';
+    }
+    if (!to.activate && !to.trailingPct) {
+      h += '<div class="anal-rec"><span class="anal-rec-reason" style="color:#555">Insufficient data for trailing optimization</span></div>';
     }
     h += '</div></div>';
   }
@@ -1965,7 +1993,13 @@ function fetchData(silent) {
   ]).then(([positions, strategies, settings, summary]) => {
     currentSettings = settings;
     document.getElementById('lastUpdated').textContent = new Date().toLocaleString();
-    allPositions = positions;
+    allPositions = positions.map(p => {
+      if (p.size_sol > 0) {
+        if (p.max_pnl_sol != null) p._max_pnl_pct = (p.max_pnl_sol / p.size_sol) * 100;
+        if (p.min_pnl_sol != null) p._min_pnl_pct = (p.min_pnl_sol / p.size_sol) * 100;
+      }
+      return p;
+    });
     const sel = document.getElementById('strategyFilter');
     const curVal = sel.value;
     sel.innerHTML = '<option value="">All</option>' + strategies.map(s => '<option value="'+s+'">'+s+'</option>').join('');

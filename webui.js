@@ -294,7 +294,7 @@ app.get('/api/analysis', (req, res) => {
     const modeParams = mode ? [mode] : [];
 
     const rows = db.prepare(`
-      SELECT p.pnl_sol, p.pnl_percent, p.exit_reason, p.entry_mcap, p.size_sol, p.min_pnl_sol, p.sl_percent, p.tp_percent, p.trailing_percent, p.opened_at_ms, p.closed_at_ms,
+       SELECT p.pnl_sol, p.pnl_percent, p.exit_reason, p.entry_mcap, p.size_sol, p.min_pnl_sol, p.max_pnl_sol, p.sl_percent, p.tp_percent, p.trailing_percent, p.opened_at_ms, p.closed_at_ms,
              c.candidate_json
       FROM dry_run_positions p
       LEFT JOIN candidates c ON p.candidate_id = c.id
@@ -317,6 +317,7 @@ app.get('/api/analysis', (req, res) => {
         entry_mcap: fmt(r.entry_mcap),
         size_sol: fmt(r.size_sol),
         min_pnl_sol: fmt(r.min_pnl_sol),
+        max_pnl_sol: fmt(r.max_pnl_sol),
         sl_percent: fmt(r.sl_percent),
         tp_percent: fmt(r.tp_percent),
         trailing_percent: fmt(r.trailing_percent),
@@ -676,27 +677,109 @@ app.get('/api/analysis', (req, res) => {
       };
     }
 
-    // SL BY LOSS: open positions > 24 jam dgn floating loss (current_pnl_sol < 0) — dianggap tdk akan balik profit
-    // floating loss terbesar (paling kecil % kerugian) = batas atas SL. SL sebaiknya tidak lebih kecil dari itu,
-    // agar posisi yg tidak akan balik dipotong sebelum rugi lebih besar.
+    // SL BY LOSS: open > 24h (stale) + closed dgn loss besar (pnl_percent < -30%)
+    // — dianggap tdk akan balik profit. floating/realized loss terbesar (paling kecil % kerugian) = batas atas SL.
+    // SL sebaiknya tidak lebih kecil dari itu agar posisi yg tidak akan balik dipotong sebelum rugi lebih besar.
     const staleRows = db.prepare(`
-      SELECT current_pnl_percent, current_pnl_sol, size_sol, opened_at_ms, symbol
+      SELECT current_pnl_percent AS loss_pct, symbol
       FROM dry_run_positions
       WHERE status = 'open' AND current_pnl_sol < 0 AND (? - opened_at_ms) > 86400000
-      ORDER BY current_pnl_percent DESC
     `).all(Date.now());
 
-    if (staleRows.length > 0) {
-      const curPcts = staleRows.map(r => r.current_pnl_percent).filter(v => v != null && v < 0);
-      if (curPcts.length > 0) {
-        const highestCurPct = Math.max(...curPcts);
-        const lowestCurPct = Math.min(...curPcts);
+    const bigLossRows = db.prepare(`
+      SELECT pnl_percent AS loss_pct, symbol
+      FROM dry_run_positions
+      WHERE status = 'closed' AND pnl_sol IS NOT NULL AND pnl_sol < 0 AND pnl_percent IS NOT NULL AND pnl_percent < -30
+    `).all();
+
+    const lossRows = [...staleRows, ...bigLossRows];
+    if (lossRows.length > 0) {
+      const lossPcts = lossRows.map(r => r.loss_pct).filter(v => v != null && v < 0);
+      if (lossPcts.length > 0) {
+        const highestLossPct = Math.max(...lossPcts);
+        const lowestLossPct = Math.min(...lossPcts);
+        const staleCount = staleRows.length;
+        const bigLossCount = bigLossRows.length;
         slOpt.slByLoss = {
-          count: staleRows.length,
-          floatLossMax: rnd(highestCurPct),
-          floatLossMin: rnd(lowestCurPct),
-          slUpperBound: rnd(highestCurPct),
-          boundDesc: `SL jangan lebih kecil dari ${rnd(highestCurPct)}% (stale >24h, loss terkecil)`,
+          staleCount,
+          bigLossCount,
+          highestLossPct: rnd(highestLossPct),
+          lowestLossPct: rnd(lowestLossPct),
+          slUpperBound: rnd(highestLossPct),
+          boundDesc: `SL jangan lebih kecil dari ${rnd(highestLossPct)}% (${staleCount} stale >24h + ${bigLossCount} closed <-30%)`,
+        };
+      }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // TRAILING OPTIMIZATION
+    // ════════════════════════════════════════════════════════════════
+    const trailOpt = { activate: null, trailingPct: null };
+
+    // Hitung peak_pnl_pct untuk tiap closed trade
+    const withPeak = analyzed.filter(a => a.size_sol > 0 && a.max_pnl_sol != null);
+    const peakPcts = withPeak.map(a => (a.max_pnl_sol / a.size_sol) * 100);
+    const winnersWithPeak = withPeak.filter(a => a.pnl_sol > 0 && a.pnl_percent != null);
+
+    if (peakPcts.length >= 5) {
+      const sortedPeaks = [...peakPcts].sort((a, b) => a - b);
+      const p25 = sortedPeaks[Math.floor(sortedPeaks.length * 0.25)];
+      const p50 = sortedPeaks[Math.floor(sortedPeaks.length * 0.5)];
+      const p75 = sortedPeaks[Math.floor(sortedPeaks.length * 0.75)];
+
+      // Activate distribution: candidate thresholds
+      const candidates = [2, 3, 5, 8, 10, 15, 20, 30, 50];
+      const activateScores = candidates.map(pct => {
+        const activated = withPeak.filter(a => (a.max_pnl_sol / a.size_sol) * 100 >= pct);
+        const winRate = activated.length ? activated.filter(a => a.pnl_sol > 0).length / activated.length * 100 : 0;
+        return { threshold: pct, count: activated.length, winRate: rnd(winRate) };
+      });
+
+      // Cari threshold optimal: minimal 50 trades, win rate tertinggi
+      const bestActivate = activateScores.filter(a => a.count >= 50).sort((a, b) => b.winRate - a.winRate)[0]
+        || activateScores.filter(a => a.count >= 20).sort((a, b) => b.winRate - a.winRate)[0];
+
+      // Retracement analysis for winners
+      const retracePcts = winnersWithPeak.map(a => {
+        const peak = (a.max_pnl_sol / a.size_sol) * 100;
+        return (a.pnl_percent - peak) / (1 + peak / 100);
+      }).filter(v => v < 0);
+
+      const sortedRetrace = [...retracePcts].sort((a, b) => a - b);
+      const rCount = sortedRetrace.length;
+
+      trailOpt.activate = {
+        peakDistribution: {
+          p25: rnd(p25),
+          p50: rnd(p50),
+          p75: rnd(p75),
+        },
+        activateScores,
+        suggestedActivate: bestActivate ? bestActivate.threshold : null,
+        description: `Aktifkan trailing di +${bestActivate ? bestActivate.threshold : '?'}% (win rate ${bestActivate ? bestActivate.winRate : '?'}% untuk trade yg mencapai level ini). 25% trade punya peak ≤ ${rnd(p25)}%, 50% ≤ ${rnd(p50)}%, 75% ≤ ${rnd(p75)}%.`,
+      };
+
+      if (rCount >= 5) {
+        const rPct25 = sortedRetrace[Math.floor(rCount * 0.25)];
+        const rPct50 = sortedRetrace[Math.floor(rCount * 0.5)];
+        const rPct75 = sortedRetrace[Math.floor(rCount * 0.75)];
+
+        const tight = Math.abs(rPct75);
+        const balanced = Math.abs(rPct50);
+        const loose = Math.abs(rPct25);
+
+        trailOpt.trailingPct = {
+          retraceDistribution: {
+            p25: rnd(rPct25),
+            p50: rnd(rPct50),
+            p75: rnd(rPct75),
+          },
+          suggestions: {
+            tight: rnd(tight),
+            balanced: rnd(balanced),
+            loose: rnd(loose),
+          },
+          description: `Dari ${rCount} closed winners, retracement from peak: 25% ≤ ${rnd(rPct25)}pp, median ${rnd(rPct50)}pp, 75% ≤ ${rnd(rPct75)}pp. Trailing: ketat ${rnd(tight)}%, sedang ${rnd(balanced)}%, longgar ${rnd(loose)}%.`,
         };
       }
     }
@@ -732,6 +815,7 @@ app.get('/api/analysis', (req, res) => {
       lossAnalysis,
       winAnalysis,
       slOptimization: slOpt,
+      trailingOptimization: trailOpt,
     });
   } catch (err) {
     console.error('Analysis error:', err);
