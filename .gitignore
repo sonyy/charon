@@ -11,3 +11,26 @@ node_modules/
 npm-debug.log*
 
 ARCHITECTURE.md
+*.backup
+*.backup*
+*.bak*
+*.tmp
+*.out
+*.err
+*.mjs
+*.json.backup
+*.json.bak*
+test*.js
+test*.mjs
+healthcheck*
+check*
+count_*
+delete_*
+final_*
+reset_*
+verify*
+restore*
+backup*
+server.out
+webui.err
+.omo/

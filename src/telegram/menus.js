@@ -156,6 +156,7 @@ export function agentText() {
     `Size: ${fmtSol(strat.position_size_sol)} SOL`,
     `TP/SL: ${fmtPct(strat.tp_percent)} / ${fmtPct(strat.sl_percent)}`,
     `Trailing: ${strat.trailing_enabled ? fmtPct(strat.trailing_percent) : 'off'}${strat.trailing_activate_percent != null ? ` (activate ${fmtPct(strat.trailing_activate_percent)})` : ''}`,
+    `SOL Supertrend: <b>${boolSetting('require_sol_supertrend', false) ? 'on' : 'off'}</b>`,
   ].join('\n');
 }
 
@@ -183,6 +184,7 @@ export function agentKeyboard() {
           { text: 'Fresh 10m', callback_data: 'set:llm_candidate_max_age_ms:600000' },
           { text: 'Fresh 20m', callback_data: 'set:llm_candidate_max_age_ms:1200000' },
         ],
+        [{ text: `SOL Supertrend ${boolSetting('require_sol_supertrend', false) ? 'on' : 'off'}`, callback_data: 'toggle:require_sol_supertrend' }],
         [{ text: 'Back', callback_data: 'menu:main' }],
       ],
     },

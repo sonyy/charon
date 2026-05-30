@@ -45,6 +45,10 @@ export async function handleCallback(query) {
     setSetting('agent_enabled', boolSetting('agent_enabled', true) ? 'false' : 'true');
     return editMenuMessage(query, agentText(), agentKeyboard());
   }
+  if (data === 'toggle:require_sol_supertrend') {
+    setSetting('require_sol_supertrend', boolSetting('require_sol_supertrend', false) ? 'false' : 'true');
+    return editMenuMessage(query, agentText(), agentKeyboard());
+  }
   if (data === 'toggle:filtered_coin_alerts') {
     setSetting('filtered_coin_alerts', boolSetting('filtered_coin_alerts', true) ? 'false' : 'true');
     return editMenuMessage(query, filtersText(), filtersKeyboard());

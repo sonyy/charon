@@ -16,6 +16,7 @@ import { setDegenHandler } from '../signals/trending.js';
 import { setCandidateHandler } from '../signals/feeClaim.js';
 import { short } from '../format.js';
 import { escapeHtml } from '../format.js';
+import { checkSolSupertrend } from '../signals/solSupertrend.js';
 
 export const seenSignalCandidates = new Map();
 
@@ -119,6 +120,34 @@ export async function processCandidateFromSignals(signals) {
       });
       return;
     }
+
+    if (boolSetting('require_sol_supertrend', false)) {
+      const solTrend = await checkSolSupertrend().catch(err => {
+        console.log(`[supertrend] check failed: ${err.message}`);
+        return null;
+      });
+      if (solTrend && !solTrend.bullish) {
+        const mintShort = short(selectedRow.candidate.token.mint);
+        console.log(`[supertrend] SOL bearish at $${solTrend.price.toFixed(2)}, skipping ${mintShort}`);
+        logDecisionEvent({
+          batchId,
+          triggerCandidateId: candidateId,
+          selectedRow,
+          rows,
+          decision: batchDecision,
+          action: 'entry_skipped_sol_supertrend',
+          guardrails: { solPrice: solTrend.price, supertrend: solTrend.supertrend },
+        });
+        await sendTelegram([
+          '🔴 <b>SOL Supertrend bearish — entry skipped</b>',
+          '',
+          candidateSummary(selectedRow.candidate, batchDecision),
+          `SOL price: $${solTrend.price.toFixed(2)}`,
+        ].join('\n'));
+        return;
+      }
+    }
+
     await handleApprovedBuy(selectedRow, batchDecision, batchId, rows, candidateId);
   } else {
     logDecisionEvent({
