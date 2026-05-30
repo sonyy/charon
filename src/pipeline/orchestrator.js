@@ -1,5 +1,5 @@
 import { now, pruneSeen } from '../utils.js';
-import { numSetting, boolSetting } from '../db/settings.js';
+import { numSetting, boolSetting, setting } from '../db/settings.js';
 import { upsertCandidate, updateCandidateStatus, recentEligibleCandidates, candidateById } from '../db/candidates.js';
 import { storeDecision, storeBatchDecision, logDecisionEvent } from '../db/decisions.js';
 import { buildCandidate, filterCandidate, signalLabel } from './candidateBuilder.js';
@@ -40,14 +40,16 @@ export async function processCandidateFromSignals(signals) {
     console.log(`[candidate] filtered ${mintShort}... ${candidate.filters.failures.join('; ')}`);
 
     let solTrendLine = '';
-    const solTrend = await checkSolSupertrend().catch(err => {
+    const stTf = setting('sol_supertrend_timeframe', 'both');
+    const solTrend = await checkSolSupertrend(stTf).catch(err => {
       console.log(`[supertrend] check failed: ${err.message}`);
       return null;
     });
     if (solTrend) {
-      const tf5m = solTrend.tf5m ? '🟢' : '🔴';
-      const tf15m = solTrend.tf15m ? '🟢' : '🔴';
-      solTrendLine = `SOL $${solTrend.price.toFixed(2)} · 5m ${tf5m} · 15m ${tf15m}`;
+      const parts = [];
+      if (solTrend.tf5m != null) parts.push(`5m ${solTrend.tf5m ? '🟢' : '🔴'}`);
+      if (solTrend.tf15m != null) parts.push(`15m ${solTrend.tf15m ? '🟢' : '🔴'}`);
+      solTrendLine = `SOL $${solTrend.price.toFixed(2)}${parts.length ? ' · ' + parts.join(' · ') : ''}`;
     }
 
     if (boolSetting('filtered_coin_alerts', true)) {
@@ -136,15 +138,18 @@ export async function processCandidateFromSignals(signals) {
     }
 
     if (boolSetting('require_sol_supertrend', false)) {
-      const solTrend = await checkSolSupertrend().catch(err => {
+      const stTf = setting('sol_supertrend_timeframe', 'both');
+      const solTrend = await checkSolSupertrend(stTf).catch(err => {
         console.log(`[supertrend] check failed: ${err.message}`);
         return null;
       });
       if (solTrend && !solTrend.bullish) {
         const mintShort = short(selectedRow.candidate.token.mint);
-        const tf5m = solTrend.tf5m ? '🟢' : '🔴';
-        const tf15m = solTrend.tf15m ? '🟢' : '🔴';
-        console.log(`[supertrend] SOL bearish (5m:${solTrend.tf5m} 15m:${solTrend.tf15m}) at $${solTrend.price.toFixed(2)}, skipping ${mintShort}`);
+        const parts = [];
+        if (solTrend.tf5m != null) parts.push(`5m:${solTrend.tf5m}`);
+        if (solTrend.tf15m != null) parts.push(`15m:${solTrend.tf15m}`);
+        const shortSummary = parts.join(' ');
+        console.log(`[supertrend] SOL bearish (${shortSummary}) at $${solTrend.price.toFixed(2)}, skipping ${mintShort}`);
         logDecisionEvent({
           batchId,
           triggerCandidateId: candidateId,
@@ -154,11 +159,14 @@ export async function processCandidateFromSignals(signals) {
           action: 'entry_skipped_sol_supertrend',
           guardrails: { solPrice: solTrend.price, supertrend5m: solTrend.tf5m, supertrend15m: solTrend.tf15m },
         });
+        const displayParts = [];
+        if (solTrend.tf5m != null) displayParts.push(`5m ${solTrend.tf5m ? '🟢' : '🔴'}`);
+        if (solTrend.tf15m != null) displayParts.push(`15m ${solTrend.tf15m ? '🟢' : '🔴'}`);
         await sendTelegram([
           '🔴 <b>SOL Supertrend bearish — entry skipped</b>',
           '',
           candidateSummary(selectedRow.candidate, batchDecision),
-          `SOL $${solTrend.price.toFixed(2)} · 5m ${tf5m} · 15m ${tf15m}`,
+          `SOL $${solTrend.price.toFixed(2)}${displayParts.length ? ' · ' + displayParts.join(' · ') : ''}`,
         ].join('\n'));
         return;
       }

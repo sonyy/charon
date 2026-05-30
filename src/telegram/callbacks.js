@@ -269,14 +269,12 @@ async function updateSettingFromButton(query, key, value) {
     'default_sl_percent',
     'default_trailing_enabled',
     'default_trailing_percent',
+    'sol_supertrend_timeframe',
   ]);
   if (!valid.has(key) || value == null) return bot.sendMessage(chatId, 'Unknown setting.');
   setSetting(key, value);
-  const text = key.startsWith('default_') || key === 'dry_run_buy_sol' || key === 'trading_mode' || key === 'llm_min_confidence' || key === 'llm_candidate_pick_count' || key === 'llm_candidate_max_age_ms' || key === 'max_open_positions'
-    ? agentText()
-    : filtersText();
-  const extra = key.startsWith('default_') || key === 'dry_run_buy_sol' || key === 'trading_mode' || key === 'llm_min_confidence' || key === 'llm_candidate_pick_count' || key === 'llm_candidate_max_age_ms' || key === 'max_open_positions'
-    ? agentKeyboard()
-    : filtersKeyboard();
+  const usesAgentMenu = key.startsWith('default_') || key === 'dry_run_buy_sol' || key === 'trading_mode' || key === 'llm_min_confidence' || key === 'llm_candidate_pick_count' || key === 'llm_candidate_max_age_ms' || key === 'max_open_positions' || key === 'sol_supertrend_timeframe';
+  const text = usesAgentMenu ? agentText() : filtersText();
+  const extra = usesAgentMenu ? agentKeyboard() : filtersKeyboard();
   return editMenuMessage(query, text, extra);
 }

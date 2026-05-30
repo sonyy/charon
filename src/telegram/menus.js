@@ -156,7 +156,7 @@ export function agentText() {
     `Size: ${fmtSol(strat.position_size_sol)} SOL`,
     `TP/SL: ${fmtPct(strat.tp_percent)} / ${fmtPct(strat.sl_percent)}`,
     `Trailing: ${strat.trailing_enabled ? fmtPct(strat.trailing_percent) : 'off'}${strat.trailing_activate_percent != null ? ` (activate ${fmtPct(strat.trailing_activate_percent)})` : ''}`,
-    `SOL Supertrend: <b>${boolSetting('require_sol_supertrend', false) ? 'on' : 'off'}</b>`,
+    `SOL Supertrend: <b>${boolSetting('require_sol_supertrend', false) ? 'on' : 'off'}</b> · TF: <b>${setting('sol_supertrend_timeframe', 'both')}</b>`,
   ].join('\n');
 }
 
@@ -185,6 +185,11 @@ export function agentKeyboard() {
           { text: 'Fresh 20m', callback_data: 'set:llm_candidate_max_age_ms:1200000' },
         ],
         [{ text: `SOL Supertrend ${boolSetting('require_sol_supertrend', false) ? 'on' : 'off'}`, callback_data: 'toggle:require_sol_supertrend' }],
+        [
+          { text: `ST 5m${setting('sol_supertrend_timeframe', 'both') === '5m' ? ' ✅' : ''}`, callback_data: 'set:sol_supertrend_timeframe:5m' },
+          { text: `ST 15m${setting('sol_supertrend_timeframe', 'both') === '15m' ? ' ✅' : ''}`, callback_data: 'set:sol_supertrend_timeframe:15m' },
+          { text: `ST both${setting('sol_supertrend_timeframe', 'both') === 'both' ? ' ✅' : ''}`, callback_data: 'set:sol_supertrend_timeframe:both' },
+        ],
         [{ text: 'Back', callback_data: 'menu:main' }],
       ],
     },
