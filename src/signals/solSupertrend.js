@@ -2,11 +2,9 @@ import { ATR } from 'technicalindicators';
 
 const BINANCE_URL = 'https://api.binance.com/api/v3/klines';
 const SYMBOL = 'SOLUSDT';
-const INTERVAL = '5m';
-const LIMIT = 100;
 
-export async function checkSolSupertrend() {
-  const res = await fetch(`${BINANCE_URL}?symbol=${SYMBOL}&interval=${INTERVAL}&limit=${LIMIT}`);
+async function checkInterval(interval) {
+  const res = await fetch(`${BINANCE_URL}?symbol=${SYMBOL}&interval=${interval}&limit=100`);
   if (!res.ok) throw new Error(`Binance API ${res.status}`);
   const data = await res.json();
 
@@ -50,5 +48,22 @@ export async function checkSolSupertrend() {
     bullish: direction === 1,
     price: closes[closes.length - 1],
     supertrend: direction === 1 ? finalLower : finalUpper,
+  };
+}
+
+export async function checkSolSupertrend() {
+  const [tf5m, tf15m] = await Promise.all([
+    checkInterval('5m'),
+    checkInterval('15m'),
+  ]);
+
+  return {
+    bullish: tf5m.bullish && tf15m.bullish,
+    price: tf5m.price,
+    price15m: tf15m.price,
+    supertrend: tf5m.supertrend,
+    supertrend15m: tf15m.supertrend,
+    tf5m: tf5m.bullish,
+    tf15m: tf15m.bullish,
   };
 }
