@@ -38,9 +38,21 @@ export async function processCandidateFromSignals(signals) {
     const strat = activeStrategy();
     const mintShort = candidate.token.mint.slice(0, 8);
     console.log(`[candidate] filtered ${mintShort}... ${candidate.filters.failures.join('; ')}`);
+
+    let solTrendLine = '';
+    const solTrend = await checkSolSupertrend().catch(err => {
+      console.log(`[supertrend] check failed: ${err.message}`);
+      return null;
+    });
+    if (solTrend) {
+      const tf5m = solTrend.tf5m ? '🟢' : '🔴';
+      const tf15m = solTrend.tf15m ? '🟢' : '🔴';
+      solTrendLine = `SOL $${solTrend.price.toFixed(2)} · 5m ${tf5m} · 15m ${tf15m}`;
+    }
+
     if (boolSetting('filtered_coin_alerts', true)) {
       try {
-        await sendTelegram([
+        const lines = [
           '⛔ <b>Filtered: ' + escapeHtml(candidate.token.symbol || candidate.token.name || short(candidate.token.mint)) + '</b>',
           '',
           `Signal: <b>${escapeHtml(candidate.signals.label)}</b> · Strategy: <b>${escapeHtml(strat.id)}</b>`,
@@ -48,7 +60,9 @@ export async function processCandidateFromSignals(signals) {
           ...(candidate.filters.failures.map(f => `❌ ${escapeHtml(f)}`)),
           '',
           `Mcap: ${candidate.metrics.marketCapUsd ? '$' + Number(candidate.metrics.marketCapUsd).toLocaleString() : '?'} · Liq: ${candidate.metrics.liquidityUsd ? '$' + Number(candidate.metrics.liquidityUsd).toLocaleString() : '?'} · Holders: ${candidate.metrics.holderCount || '?'}`,
-        ].join('\n'));
+        ];
+        if (solTrendLine) lines.push('', solTrendLine);
+        await sendTelegram(lines.join('\n'));
       } catch (err) {
         console.log(`[candidate] telegram send failed: ${err.message}`);
       }
