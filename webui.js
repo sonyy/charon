@@ -551,7 +551,7 @@ app.get('/api/analysis', (req, res) => {
     // ════════════════════════════════════════════════════════════════
     // LOSS vs WIN ANALYSIS (compare distributions)
     // ════════════════════════════════════════════════════════════════
-    const lossThreshold = -30;
+    const lossThreshold = -10;
     const winThreshold = 30;
     const lossTrades = analyzed.filter(a => a.pnl_percent != null && a.pnl_percent <= lossThreshold);
     const winTrades = analyzed.filter(a => a.pnl_percent != null && a.pnl_percent >= winThreshold);
