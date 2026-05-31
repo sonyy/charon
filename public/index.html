@@ -1628,7 +1628,7 @@ function renderAnalysis(data) {
       la.commonConditions.forEach(c => {
         h += '<div class="anal-rec"><span class="anal-rec-label">' + c.label + '</span>' +
           '<span class="anal-rec-val">' + c.direction + ' ' + c.formatted + '</span>' +
-          '<span class="anal-rec-reason">' + c.captureCount + '/' + la.count + ' loss (' + c.capturePct + '%) vs win ' + c.opposingCapturePct + '% \u0394' + c.diff + 'pp</span></div>';
+           '<span class="anal-rec-reason">' + c.captureCount + '/' + la.count + ' loss (' + c.capturePct + '%)</span></div>';
       });
     }
     h += '</div>';
@@ -1655,7 +1655,7 @@ function renderAnalysis(data) {
       wa.commonConditions.forEach(c => {
         h += '<div class="anal-rec"><span class="anal-rec-label">' + c.label + '</span>' +
           '<span class="anal-rec-val">' + c.direction + ' ' + c.formatted + '</span>' +
-          '<span class="anal-rec-reason">' + c.captureCount + '/' + wa.count + ' win (' + c.capturePct + '%) vs loss ' + c.opposingCapturePct + '% \u0394' + c.diff + 'pp</span></div>';
+           '<span class="anal-rec-reason">' + c.captureCount + '/' + wa.count + ' win (' + c.capturePct + '%)</span></div>';
       });
     }
     h += '</div></div>';

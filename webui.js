@@ -640,7 +640,7 @@ app.get('/api/analysis', (req, res) => {
                   metric: f.label,
                   current: curVal,
                   suggest,
-                  reason: `${best.tHit}/${trades.length} loss (${rnd(best.tPct)}%) vs ${best.oHit}/${opposing.length} win (${rnd(best.oPct)}%) punya ${f.label} ${d === 'le' ? '\u2264' : '\u2265'} ${fmt(f.key, best.thresh)}`,
+                  reason: `${best.tHit}/${trades.length} loss (${rnd(best.tPct)}%) punya ${f.label} ${d === 'le' ? '\u2264' : '\u2265'} ${fmt(f.key, best.thresh)}`,
                 });
               }
             }
