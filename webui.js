@@ -628,6 +628,13 @@ app.get('/api/analysis', (req, res) => {
               } else {
                 suggest = Math.max(curVal ?? 0, best.thresh);
               }
+              if (f.key === 'liquidityUsd' || f.key === 'holderCount' || f.key === 'trendingSwaps') {
+                suggest = Math.round(suggest);
+              } else if (f.key === 'top10Pct') {
+                suggest = Math.round(suggest * 10) / 10;
+              } else if (f.key === 'trendingVolumeUsd') {
+                suggest = Math.round(suggest);
+              }
               if (suggest !== curVal && suggest > 0) {
                 analysis.recommendations.push({
                   metric: f.label,

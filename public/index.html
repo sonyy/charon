@@ -1637,7 +1637,7 @@ function renderAnalysis(data) {
       la.recommendations.forEach(r => {
         h += '<div class="anal-rec"><span class="anal-rec-label">' + r.metric + '</span>' +
           '<span class="anal-rec-val" style="color:#888;text-decoration:line-through">' + r.current + '</span>' +
-          ' \u2192 <span class="anal-rec-val">' + r.suggest + '</span>' +
+          ' \u2192 <span class="anal-rec-val">' + r.suggest + '</span> ' +
           '<span class="anal-rec-reason">' + r.reason + '</span></div>';
       });
       h += '</div>';
