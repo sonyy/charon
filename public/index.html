@@ -1624,14 +1624,6 @@ function renderAnalysis(data) {
     h += '<div class="anal-section"><div class="anal-section-title" style="color:#ff4136">LOSS ANALYSIS \u2264' + la.threshold + '%' +
       ' <span style="color:#555;font-weight:400;font-size:10px">' + la.count + ' trades</span></div>' +
       '<div class="anal-recs">';
-    if (la.commonConditions && la.commonConditions.length) {
-      la.commonConditions.forEach(c => {
-        h += '<div class="anal-rec"><span class="anal-rec-label">' + c.label + '</span>' +
-          '<span class="anal-rec-val">' + c.direction + ' ' + c.formatted + '</span>' +
-           '<span class="anal-rec-reason">' + c.captureCount + '/' + la.count + ' loss (' + c.capturePct + '%)</span></div>';
-      });
-    }
-    h += '</div>';
     if (la.recommendations && la.recommendations.length) {
       h += '<div class="anal-section-title" style="color:#00ff41;font-size:10px;margin-top:4px">TIGHTEN RECS</div><div class="anal-recs">';
       la.recommendations.forEach(r => {
