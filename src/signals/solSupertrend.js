@@ -8,9 +8,13 @@ async function checkInterval(interval) {
   if (!res.ok) throw new Error(`Binance API ${res.status}`);
   const data = await res.json();
 
-  const highs = data.map(d => parseFloat(d[2]));
-  const lows = data.map(d => parseFloat(d[3]));
-  const closes = data.map(d => parseFloat(d[4]));
+  // Use only closed candles (exclude current forming candle) to avoid false flips
+  // from still-forming intra-candle volatility.
+  const closed = data.length > 12 ? data.slice(0, -1) : data;
+
+  const highs = closed.map(d => parseFloat(d[2]));
+  const lows = closed.map(d => parseFloat(d[3]));
+  const closes = closed.map(d => parseFloat(d[4]));
 
   const atrValues = ATR.calculate({ high: highs, low: lows, close: closes, period: 10 });
   const multiplier = 3;
