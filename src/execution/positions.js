@@ -131,13 +131,32 @@ export async function refreshPosition(position, { autoExit = true, jupiterPnl = 
     : pnlPercent;
   const trailingArmed = position.trailing_armed || (position.trailing_enabled && (tpHit || pnlPercent >= trailingActivatePct || peakPnlPct >= trailingActivatePct));
   const trailDrop = highWaterMcap > 0 ? (Number(mcap) / highWaterMcap - 1) * 100 : 0;
-  const trailingHit = trailingArmed && position.trailing_enabled && trailDrop <= -Math.abs(Number(position.trailing_percent));
+  // Progressive trailing tiers: format "activatePct:trailPct,activatePct:trailPct,..."
+  // e.g. "30:15,60:20,100:30,200:40" means:
+  //   at 30% PnL → 15% trail, at 60% PnL → 20% trail, at 100% → 30%, at 200% → 40%
+  let effectiveTrailPct = Number(position.trailing_percent);
+  const trailTiers = strat?.trail_tiers;
+  if (trailingArmed && trailTiers) {
+    const tiers = String(trailTiers).split(',').map(t => {
+      const [act, tr] = t.split(':').map(Number);
+      return { activatePct: act, trailPct: tr };
+    }).sort((a, b) => a.activatePct - b.activatePct);
+    for (const tier of tiers) {
+      if (peakPnlPct >= tier.activatePct) {
+        effectiveTrailPct = tier.trailPct;
+      }
+    }
+  }
+  const trailingHit = trailingArmed && position.trailing_enabled && trailDrop <= -Math.abs(effectiveTrailPct);
 
   if (trailingArmed && !position.trailing_armed) {
     console.log(`[trailing] ${position.id} armed activatePct=${trailingActivatePct} pnl=${pnlPercent.toFixed(1)}% peakPnl=${peakPnlPct.toFixed(1)}%`);
   }
+  if (trailingArmed && trailTiers && effectiveTrailPct !== Number(position.trailing_percent)) {
+    console.log(`[trailing] ${position.id} tier: ${effectiveTrailPct}% trail @ ${peakPnlPct.toFixed(1)}% peak (default ${position.trailing_percent}%)`);
+  }
   if (trailingHit) {
-    console.log(`[trailing] ${position.id} HIT trailDrop=${trailDrop.toFixed(1)}% trailPct=${position.trailing_percent}%`);
+    console.log(`[trailing] ${position.id} HIT trailDrop=${trailDrop.toFixed(1)}% trailPct=${effectiveTrailPct}%`);
   }
   let exitReason = null;
   let closed = false;
