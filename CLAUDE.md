@@ -32,3 +32,17 @@ Gunakan multiple worker secara paralel dalam mengerjakan task yang diberikan ke 
    - Mempertimbangkan dampak ke posisi/strategi lain
    - Memastikan perubahan tidak menghalangi pola profitable yang sudah ter-identifikasi
 4. **When unsure, say "saya perlu liat data dulu" before proposing anything.**
+
+## ⚡ Execution-mode parity (HARD RULE)
+
+- **Pastikan `dry_run`, `confirm`, dan `live` SELALU SAMA dalam logika.** Setiap
+  perubahan pada screening, strategy gates, enrich, LLM selection, atau monitoring
+  yang dibuat di satu mode HARUS diterapkan ke mode lainnya. Ketiga mode tidak
+  boleh divergen dalam pengambilan keputusan — `TRADING_MODE` hanya mengubah
+  apakah tx dikirim (atau menunggu konfirmasi), bukan bagaimana kandidat dipilih.
+- Mode `dry_run`/`confirm` hanya me-skip pengiriman tx aktual (atau menunggu
+  approval). Mereka TIDAK boleh me-skip signal poll, enrich, strategy gate,
+  safety check, atau logging apa pun yang juga dijalankan di `live`.
+- Sebelum menyelesaikan perubahan, pastikan path tiap mode pada kode yang
+  disentuh menghasilkan kandidat/keputusan yang sama. Jangan biarkan fix menetap
+  di dry_run saja tanpa juga masuk ke live.
