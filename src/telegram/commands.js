@@ -1,6 +1,6 @@
 import { bot } from './bot.js';
 import { TELEGRAM_CHAT_ID } from '../config.js';
-import { now, json } from '../utils.js';
+import { now, json, firstPositiveNumber } from '../utils.js';
 import { escapeHtml, fmtPct } from '../format.js';
 import { db } from '../db/connection.js';
 import { numSetting, boolSetting, setSetting, activeStrategy, setActiveStrategy, strategyById, updateStrategyConfig } from '../db/settings.js';
@@ -24,6 +24,7 @@ import {
 import { sendTelegram, sendBatch, sendPositionOpen } from './send.js';
 import { candidateSummary, formatPosition } from './format.js';
 import { refreshPosition } from '../execution/positions.js';
+import { fetchJupiterAsset } from '../enrichment/jupiter.js';
 import { executeLiveSell } from '../execution/router.js';
 import { handleCallback, editMenuMessage } from './callbacks.js';
 import { consumeNumericFilterInput } from './input.js';
@@ -173,7 +174,8 @@ export async function sendPosition(chatId, id, query = null) {
   let row = db.prepare('SELECT * FROM dry_run_positions WHERE id = ?').get(id);
   if (!row) return bot.sendMessage(chatId, 'Position not found.');
   if (row.status === 'open') {
-    const refreshed = await refreshPosition(row, { autoExit: row.execution_mode !== 'live' }).catch((err) => {
+    // Manual view must NOT auto-exit — monitorPositions() is the only auto-exit trigger.
+    const refreshed = await refreshPosition(row, { autoExit: false }).catch((err) => {
       console.log(`[position] refresh ${id} ${err.message}`);
       return null;
     });
@@ -187,9 +189,21 @@ export async function sendPosition(chatId, id, query = null) {
 export async function closePosition(chatId, id, reason) {
   const row = db.prepare('SELECT * FROM dry_run_positions WHERE id = ?').get(id);
   if (!row || row.status !== 'open') return bot.sendMessage(chatId, 'Open position not found.');
-  const result = await refreshPosition(row, { autoExit: false });
-  const price = result?.price ?? row.high_water_price ?? row.entry_price;
-  const mcap = result?.mcap ?? row.high_water_mcap ?? row.entry_mcap;
+  // For live closes, fetch a fresh price directly (bypass the backoff-guarded fallback) so the
+  // recorded PnL reflects the real exit price, not the stale high-water peak.
+  let price = row.high_water_price ?? row.entry_price;
+  let mcap = row.high_water_mcap ?? row.entry_mcap;
+  if (row.execution_mode === 'live') {
+    const fresh = await fetchJupiterAsset(row.mint, { useCache: false }).catch(() => null);
+    if (fresh?.usdPrice) {
+      price = fresh.usdPrice;
+      mcap = firstPositiveNumber(fresh.mcap, fresh.fdv) || mcap;
+    }
+  } else {
+    const result = await refreshPosition(row, { autoExit: false });
+    price = result?.price ?? price;
+    mcap = result?.mcap ?? mcap;
+  }
   const pnlPercent = row.entry_mcap ? (Number(mcap) / Number(row.entry_mcap) - 1) * 100 : 0;
   const pnlSol = Number(row.size_sol) * pnlPercent / 100;
   let sell = null;

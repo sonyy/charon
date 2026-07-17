@@ -1262,9 +1262,9 @@ let tradeCache = {};
 // Activate saved mode button immediately
 document.querySelectorAll('.mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === modeFilter));
 
-// Restore saved refresh interval
-const savedMs = localStorage.getItem('charon_refresh_ms');
-if (savedMs) {
+// Restore saved refresh interval (default: 3s)
+const savedMs = localStorage.getItem('charon_refresh_ms') || '3000';
+{
   const sel = document.getElementById('refreshInterval');
   sel.value = savedMs;
   if (parseInt(savedMs, 10) > 0) {
@@ -2006,6 +2006,7 @@ function fetchData(silent) {
     document.getElementById('loadingState').style.display = 'none';
     renderChart();
   }).catch(err => {
+    console.error('[charon] auto-refresh error:', err.message);
     if (silent) return;
     document.getElementById('loadingState').innerHTML = '<span class="error">Error: '+err.message+'</span>';
   });

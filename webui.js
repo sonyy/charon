@@ -112,7 +112,7 @@ app.get('/api/positions', (req, res) => {
       WHERE (? = '' OR status = ?)
         AND (? = '' OR strategy_id = ?)
       ORDER BY opened_at_ms DESC
-      LIMIT 1000
+      LIMIT 5000
     `).all(status || '', status || '', strategy || '', strategy || '');
 
     const formatted = rows.map(r => ({
